@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  /* ── Design tokens from chat_ui.html ── */
+  --color-bg: #F0EDE5;
+  --color-elev: #FFFFFF;
+  --color-line: #E5E2DA;
+  --color-text: #2D2B29;
+  --color-muted: #78756E;
+  --color-accent: #0D7B64;
+  --color-cta: #2D2B29;
+  --color-chip: #E8E4D9;
+  --color-focus: #C2BFB6;
+  --color-code-bg: #F5F2EA;
+  --color-code-text: #54514B;
+  --color-accent-soft: #EAF5F2;
+
+  /* Legacy aliases kept for compatibility */
+  --ink: var(--color-text);
+  --muted: var(--color-muted);
+  --panel: var(--color-elev);
+  --panel-border: var(--color-line);
+  --accent: var(--color-accent);
+  --accent-soft: var(--color-accent-soft);
+  --warn: #c36a24;
+
+  /* Radii */
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 24px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-1: 0 8px 40px rgba(0, 0, 0, 0.07), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--color-text);
+  outline: none;
+  resize: none;
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px rgba(194, 191, 182, 0.35);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-muted);
+}
+
+/* Thin custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-chip);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-focus);
+}
+
+/* Typing dots animation */
+@keyframes dot-bounce {
+  0%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes review-step-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes review-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 160, 23, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(212, 160, 23, 0.08);
+  }
+}
+
+/* Responsive fallback for the interview slab */
+@media (max-width: 860px) {
+  .interview-slab {
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: calc(100vh - 80px);
+  }
+
+  .interview-slab .chat-side,
+  .interview-slab .preview-side {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--color-line);
+    height: 50vh;
+  }
+}
