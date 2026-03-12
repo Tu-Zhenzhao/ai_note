@@ -3,6 +3,7 @@ import {
   getOpenPreviewSlotsForSectionIndex,
   getPreviewSlotsForSectionIndex,
   getSectionIdForIndex,
+  isSlotOpenForCompletion,
   syncPreviewSlots,
 } from "@/server/services/preview-slots";
 
@@ -132,7 +133,7 @@ export function composePreview(state: InterviewState) {
     core_problems: asList(coreProblems?.display_value ?? []),
     desired_outcomes: asList(desiredOutcomes?.display_value ?? []),
     who_to_attract_on_linkedin: asText(attractionGoal?.display_value ?? ""),
-    verification: [primaryAudience, coreProblems, attractionGoal]
+    verification: [primaryAudience, coreProblems, desiredOutcomes, attractionGoal]
       .filter((slot): slot is PreviewSlot => !!slot)
       .map((slot) => verificationFromSlot(slot)),
     meta: state.preview_projection.audience_understanding.meta,
@@ -207,7 +208,7 @@ export function composePreview(state: InterviewState) {
     sections_updated: Array.from(new Set(diagnostics.captured_fields_this_turn.map((f) => f.split(".")[0]))),
     newly_captured: diagnostics.captured_fields_this_turn,
     remains_open: slots
-      .filter((slot) => slot.status === "missing" || slot.status === "weak")
+      .filter((slot) => isSlotOpenForCompletion(slot))
       .map((slot) => slot.question_label),
     items_confirmed: state.checklist
       .filter((c) => c.status === "verified")
@@ -217,7 +218,7 @@ export function composePreview(state: InterviewState) {
   // ── Open Items (humanized) ─
 
   state.preview_projection.open_items = slots
-    .filter((slot) => slot.status === "missing" || slot.status === "weak")
+    .filter((slot) => isSlotOpenForCompletion(slot))
     .map((slot) => ({
       human_label: slot.question_label,
       priority: slot.required_for_section_completion

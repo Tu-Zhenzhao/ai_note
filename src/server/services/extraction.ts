@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { statusValue } from "@/lib/state";
-import { InterviewState, TurnDiagnostics, VerificationState } from "@/lib/types";
+import { FieldStatus, InterviewState, TurnDiagnostics, VerificationState } from "@/lib/types";
 import { generateModelObject } from "@/server/model/adapters";
 import { extractionSystemPrompt, extractionUserPrompt } from "@/server/prompts/extraction";
 import { advanceChecklistItems } from "@/server/rules/checklist";
+import { confirmPreviewSlots, getTargetFieldForSlotId } from "@/server/services/preview-slots";
+import { syncWorkflowState } from "@/server/services/workflow";
 
 const extractionSchema = z.object({
   company_one_liner: z.string().optional(),
@@ -276,6 +278,13 @@ function mergeUpdates(base: ExtractionUpdates, overlay: ExtractionUpdates): Extr
   return out as ExtractionUpdates;
 }
 
+function isLikelyDirectAnswer(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (/(not sure|i don't know|idk|maybe|not certain|skip)/i.test(normalized)) return false;
+  return true;
+}
+
 function applyExtraction(
   state: InterviewState,
   updates: ExtractionUpdates,
@@ -287,6 +296,21 @@ function applyExtraction(
   const assistantInferences: string[] = [];
   const conflicts: string[] = [];
   const now = new Date().toISOString();
+  const activeSlotId = state.workflow?.next_question_slot_id ?? null;
+  const activeTargetField = activeSlotId
+    ? getTargetFieldForSlotId(state, activeSlotId)
+    : null;
+  const directAnswerForActiveTarget = isLikelyDirectAnswer(rawUserMessage);
+  const shouldConfirmField = (fieldKey: string) =>
+    directAnswerForActiveTarget &&
+    !!activeTargetField &&
+    fieldKey === activeTargetField;
+  const normalizeStatusForActiveTarget = (fieldKey: string, status: FieldStatus): FieldStatus => {
+    if (shouldConfirmField(fieldKey) && status === "partial") {
+      return "strong";
+    }
+    return status;
+  };
 
   const verState: VerificationState = isModelExtracted ? "ai_inferred" : "unverified";
 
@@ -297,8 +321,10 @@ function applyExtraction(
   ) => {
     const changed = target.value !== value;
     target.value = value;
-    target.status = statusFromString(value);
-    target.verification_state = verState;
+    target.status = normalizeStatusForActiveTarget(fieldKey, statusFromString(value));
+    target.verification_state = shouldConfirmField(fieldKey)
+      ? "user_confirmed"
+      : verState;
     target.source_turn_ids = [...(target.source_turn_ids ?? []), sourceTurnId];
     target.last_updated_at = now;
     if (changed) capturedFields.push(fieldKey);
@@ -311,8 +337,10 @@ function applyExtraction(
   ) => {
     const changed = arraysDifferent(target.value, value);
     target.value = value;
-    target.status = statusFromArray(value);
-    target.verification_state = verState;
+    target.status = normalizeStatusForActiveTarget(fieldKey, statusFromArray(value));
+    target.verification_state = shouldConfirmField(fieldKey)
+      ? "user_confirmed"
+      : verState;
     target.source_turn_ids = [...(target.source_turn_ids ?? []), sourceTurnId];
     target.last_updated_at = now;
     if (changed) capturedFields.push(fieldKey);
@@ -389,8 +417,15 @@ function applyExtraction(
       content_resonance_angle: "",
       status: statusFromString(updates.primary_audience),
     };
-    state.market_audience.primary_audience.status = statusFromString(updates.primary_audience);
-    state.market_audience.primary_audience.verification_state = verState;
+    state.market_audience.primary_audience.status = normalizeStatusForActiveTarget(
+      "market_audience.primary_audience",
+      statusFromString(updates.primary_audience),
+    );
+    state.market_audience.primary_audience.verification_state = shouldConfirmField(
+      "market_audience.primary_audience",
+    )
+      ? "user_confirmed"
+      : verState;
     state.market_audience.primary_audience.last_updated_at = now;
     if (changed) capturedFields.push("market_audience.primary_audience");
   }
@@ -533,6 +568,15 @@ function applyExtraction(
     capturedFields.push("evidence_library.source_material_links");
   }
 
+  if (
+    activeSlotId &&
+    activeTargetField &&
+    capturedFields.includes(activeTargetField) &&
+    shouldConfirmField(activeTargetField)
+  ) {
+    confirmPreviewSlots(state, [activeSlotId]);
+  }
+
   // Cross-map: founding_story ONLY from mission_statement (not from one-liner — those are different things)
   if (updates.mission_statement && state.brand_story.founding_story.status === "missing") {
     setString("brand_story.founding_story", state.brand_story.founding_story, updates.mission_statement);
@@ -633,6 +677,7 @@ export async function extractStructuredUpdates(params: {
 
   state.system_assessment.last_turn_diagnostics = diagnostics;
   state.system_assessment.state_updates_this_turn = applied.capturedFields;
+  syncWorkflowState(state);
 
   console.log("[extraction] Captured fields:", applied.capturedFields);
   console.log("[extraction] Advanced checklist items:", advancedChecklist);

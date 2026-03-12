@@ -8,21 +8,36 @@ import {
   syncPreviewSlots,
 } from "@/server/services/preview-slots";
 
-let cachedAgentPrompt: string | null = null;
+const promptCache: Record<string, string> = {};
 
-function loadAgentPrompt(): string {
-  if (cachedAgentPrompt) return cachedAgentPrompt;
+function loadPromptFile(filename: string, fallback: string): string {
+  if (promptCache[filename]) return promptCache[filename];
   try {
-    const filePath = join(process.cwd(), "src", "server", "prompts", "AGENT.md");
-    cachedAgentPrompt = readFileSync(filePath, "utf-8");
-    return cachedAgentPrompt;
+    const filePath = join(process.cwd(), "src", "server", "prompts", filename);
+    promptCache[filename] = readFileSync(filePath, "utf-8");
+    return promptCache[filename];
   } catch {
-    return "You are a senior LinkedIn content strategist conducting a discovery interview. Be natural, brief, and conversational. Never repeat what the user said. Ask one focused question per turn.";
+    return fallback;
   }
 }
 
+const DEFAULT_FALLBACK =
+  "You are a senior LinkedIn content strategist conducting a discovery interview. Be natural, brief, and conversational. Never repeat what the user said. Ask one focused question per turn.";
+
 export function interviewSystemPrompt(): string {
-  return loadAgentPrompt();
+  return loadPromptFile("AGENT.md", DEFAULT_FALLBACK);
+}
+
+export type TaskPromptKey = "answer_question" | "ask_for_help" | "other_discussion";
+
+const TASK_PROMPT_FILES: Record<TaskPromptKey, string> = {
+  answer_question: "ANSWER.md",
+  ask_for_help: "HELP.md",
+  other_discussion: "DISCUSSION.md",
+};
+
+export function loadTaskPrompt(taskType: TaskPromptKey): string {
+  return loadPromptFile(TASK_PROMPT_FILES[taskType], DEFAULT_FALLBACK);
 }
 
 const HUMAN_LABELS: Record<string, string> = {
@@ -92,6 +107,7 @@ export function interviewUserPrompt(params: {
   state: InterviewState;
   nextQuestion: string;
   questionType: QuestionType;
+  taskType?: "answer_question" | "ask_for_help" | "other_discussion";
   capturedFieldsThisTurn: string[];
   capturedChecklistItemsThisTurn: string[];
   recentMessages: InterviewMessage[];
@@ -137,6 +153,7 @@ export function interviewUserPrompt(params: {
     ? `SECTION TRANSITION: You just completed the previous section. You are now starting "${params.currentSectionName}". Announce this transition naturally.`
     : "";
   const workflowConstraints = [
+    `Planner task type: ${params.taskType ?? "answer_question"}`,
     `Workflow phase: ${params.workflowPhase ?? "interviewing"}`,
     `Transition allowed this turn: ${params.transitionAllowed ? "yes" : "no"}`,
     params.pendingReviewSectionName
@@ -147,6 +164,12 @@ export function interviewUserPrompt(params: {
       : "",
     params.workflowPhase === "confirming_section"
       ? "HARD RULE: Ask for section confirmation or refinement only. Do not introduce a next-section question."
+      : "",
+    params.taskType === "ask_for_help"
+      ? "HARD RULE: Provide suggestions/options and guide selection. Do not claim checklist answers are finalized."
+      : "",
+    params.taskType === "other_discussion"
+      ? "HARD RULE: Stay in clarification/discussion mode and avoid pretending durable state changed."
       : "",
   ]
     .filter(Boolean)
@@ -185,12 +208,9 @@ export function interviewUserPrompt(params: {
     chatHistory || "(No prior messages)",
     "",
     "=== YOUR TASK ===",
-    "Compose a natural response following the rules in your system prompt.",
-    "1. Briefly acknowledge what was captured (do NOT repeat user's words).",
-    "2. Mention what you updated in plain language.",
-    "3. State where you are (current section) and what is still needed.",
-    "4. Ask the next question (one focused question, max two).",
-    "Keep it to 2-4 sentences. Be conversational, not robotic.",
+    "Compose a natural response following the rules in your system prompt (including the task-specific prompt book).",
+    "IMPORTANT: Do NOT mention section names or say 'We are in…' — the UI shows section status separately.",
+    "Keep it conversational. Use markdown formatting naturally (bold, lists) when it adds clarity.",
     "IMPORTANT: Required items that are still weak, inferred, or unconfirmed may be revisited. Do not move to the next section while a required item in the current section is still open.",
   ].filter(Boolean).join("\n");
 }

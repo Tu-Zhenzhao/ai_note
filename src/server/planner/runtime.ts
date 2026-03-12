@@ -1,5 +1,12 @@
 import { randomUUID } from "crypto";
-import { CompletionState, InterviewState, PlannerAction, QuestionStyle, QuestionType } from "@/lib/types";
+import {
+  CompletionState,
+  InterviewState,
+  PlannerAction,
+  QuestionStyle,
+  QuestionType,
+  StructuredChoicePrompt,
+} from "@/lib/types";
 import { getInterviewRepository } from "@/server/repo";
 import { recallChatBook, recallUnresolvedConflicts } from "@/server/planner/retrieval";
 import { getCurrentSectionName, selectBestChecklistTarget } from "@/server/rules/checklist";
@@ -31,6 +38,7 @@ export interface PlannerTurnDecision {
   userFacingProgressNote: string;
   sectionAdvanced: boolean;
   currentSectionName: string;
+  structuredChoice?: StructuredChoicePrompt | null;
 }
 
 function normalizeQuestion(question: string) {
@@ -51,6 +59,82 @@ function humanProgressNote(state: InterviewState) {
   return "I still need one focused detail to strengthen this section.";
 }
 
+function buildStructuredChoice(slotId: string): StructuredChoicePrompt | null {
+  if (slotId === "audience_understanding.linkedin_attraction_goal") {
+    return {
+      slot_id: slotId,
+      prompt: "Who exactly do you want to attract on LinkedIn from this audience?",
+      options: [
+        {
+          id: "product_managers",
+          label: "Product managers in manufacturing/AI companies",
+          value: "Product managers in manufacturing and AI-focused companies",
+        },
+        {
+          id: "ops_it_leaders",
+          label: "Operations and IT leaders",
+          value: "Operations and IT leaders responsible for search/data workflows",
+        },
+        {
+          id: "business_executives",
+          label: "Business decision-makers and budget owners",
+          value: "Business decision-makers focused on efficiency and cost outcomes",
+        },
+      ],
+      allow_other: true,
+      other_placeholder: "Other audience segment...",
+    };
+  }
+  if (slotId === "linkedin_content_strategy.main_content_goal") {
+    return {
+      slot_id: slotId,
+      prompt: "What should LinkedIn content achieve first?",
+      options: [
+        {
+          id: "thought_leadership",
+          label: "Build thought leadership",
+          value: "Position our brand as a thought leader in our category",
+        },
+        {
+          id: "direct_demos",
+          label: "Drive direct demo inquiries",
+          value: "Drive direct demo sign-ups from qualified buyers",
+        },
+        {
+          id: "both_balanced",
+          label: "Balanced: authority + conversions",
+          value: "Build authority while steadily increasing qualified inquiries",
+        },
+      ],
+      allow_other: true,
+      other_placeholder: "Other LinkedIn goal...",
+    };
+  }
+  return null;
+}
+
+export function resolveStructuredChoiceFallback(params: {
+  activeSlotId: string | null;
+  activeSectionId: string | undefined;
+  activeAttempts: number;
+  capturedActiveTarget: boolean;
+}): StructuredChoicePrompt | null {
+  if (
+    !params.activeSlotId ||
+    params.capturedActiveTarget ||
+    params.activeAttempts < 2
+  ) {
+    return null;
+  }
+  if (
+    params.activeSectionId !== "audience_understanding" &&
+    params.activeSectionId !== "linkedin_content_strategy"
+  ) {
+    return null;
+  }
+  return buildStructuredChoice(params.activeSlotId);
+}
+
 /**
  * v3 planner decision policy (Architecture Doc 12.9):
  * 1. Resolve contradictions first → confirm
@@ -59,6 +143,10 @@ function humanProgressNote(state: InterviewState) {
  * 4. Pause for verification (mostly complete) → checkpoint
  * 5. Escalate when confidence drops → handoff
  * 6. Generate only after checkpoint approval → generate_brief
+ */
+/**
+ * @deprecated Utra1 uses `classifyTurn` in `src/server/agent/planner.ts`.
+ * This question-first runtime remains for backward compatibility.
  */
 export async function runPlannerTurn(params: {
   sessionId: string;
@@ -163,6 +251,7 @@ export async function runPlannerTurn(params: {
   let rationale = "Default ask move to maintain forward momentum.";
   let targetFields: string[] = [];
   let checkpointRecommended = false;
+  let structuredChoice: StructuredChoicePrompt | null = null;
 
   const criticalOpen = openInCurrent.filter(
     (slot) =>
@@ -291,6 +380,29 @@ export async function runPlannerTurn(params: {
     rationale = "Anti-repeat guard switched to summarize+confirm.";
   }
 
+  const activeSlotId = params.state.workflow.next_question_slot_id;
+  const activeTargetField = targetFields[0] ?? nextPreviewSlot?.question_target_field;
+  const activeAttempts = activeTargetField
+    ? params.state.system_assessment.follow_up_attempts[activeTargetField]?.attempts ?? 0
+    : 0;
+  const capturedActiveTarget = activeTargetField
+    ? extracted.captured_fields_this_turn.includes(activeTargetField)
+    : false;
+  const prompt = resolveStructuredChoiceFallback({
+    activeSlotId,
+    activeSectionId: params.state.workflow.active_section_id,
+    activeAttempts,
+    capturedActiveTarget,
+  });
+  if (prompt) {
+    structuredChoice = prompt;
+    plannerAction = "ask";
+    questionStyle = "guided_choice";
+    questionType = "contrast";
+    nextQuestion = prompt.prompt;
+    rationale = `${rationale} Switched to structured-choice fallback for ${activeSlotId}.`;
+  }
+
   // ── Enrich rationale with recalled context ─
 
   if (recalled.length > 0 && plannerAction === "ask") {
@@ -350,5 +462,6 @@ export async function runPlannerTurn(params: {
     userFacingProgressNote,
     sectionAdvanced: sectionResult.advanced || params.state.conversation_meta.current_section_index !== startIndex,
     currentSectionName: sectionResult.sectionName,
+    structuredChoice,
   };
 }

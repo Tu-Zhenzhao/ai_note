@@ -22,10 +22,21 @@ export interface InterviewStateRecord {
   last_checkpoint_at: string | null;
 }
 
+export interface SessionSummary {
+  id: string;
+  status: string;
+  completion_level: string;
+  completion_score: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface InterviewRepository {
+  listSessions(): Promise<SessionSummary[]>;
   getSession(sessionId: string): Promise<InterviewSession | null>;
   createSession(session: InterviewSession): Promise<void>;
   upsertSession(session: InterviewSession): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
 
   getState(sessionId: string): Promise<InterviewStateRecord | null>;
   upsertState(record: InterviewStateRecord): Promise<void>;

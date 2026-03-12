@@ -11,7 +11,7 @@ import {
   SessionTrace,
   ToolActionLog,
 } from "@/lib/types";
-import { InterviewRepository, InterviewStateRecord } from "@/server/repo/contracts";
+import { InterviewRepository, InterviewStateRecord, SessionSummary } from "@/server/repo/contracts";
 
 interface Store {
   sessions: Map<string, InterviewSession>;
@@ -48,8 +48,35 @@ function getStore(): Store {
   return globalStore.__interviewStore;
 }
 
+const CAPS = {
+  messages: 200,
+  chatBook: 100,
+  plannerDecisions: 100,
+  payloadPatchLog: 100,
+  toolActionLog: 300,
+  checkpointSnapshots: 50,
+} as const;
+
+function pushCapped<T>(items: T[], entry: T, cap: number): void {
+  items.push(entry);
+  if (items.length > cap) items.splice(0, items.length - cap);
+}
+
 export class MemoryInterviewRepository implements InterviewRepository {
   private readonly store = getStore();
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return Array.from(this.store.sessions.values())
+      .map((s) => ({
+        id: s.id,
+        status: s.status,
+        completion_level: s.completion_level,
+        completion_score: s.completion_score,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      }))
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
 
   async getSession(sessionId: string): Promise<InterviewSession | null> {
     return this.store.sessions.get(sessionId) ?? null;
@@ -61,6 +88,17 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async upsertSession(session: InterviewSession): Promise<void> {
     this.store.sessions.set(session.id, session);
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.store.sessions.delete(sessionId);
+    this.store.states.delete(sessionId);
+    this.store.messages.delete(sessionId);
+    this.store.chatBook.delete(sessionId);
+    this.store.plannerDecisions.delete(sessionId);
+    this.store.payloadPatchLog.delete(sessionId);
+    this.store.toolActionLog.delete(sessionId);
+    this.store.checkpointSnapshots.delete(sessionId);
   }
 
   async getState(sessionId: string): Promise<InterviewStateRecord | null> {
@@ -77,7 +115,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addMessage(message: InterviewMessage): Promise<void> {
     const items = this.store.messages.get(message.session_id) ?? [];
-    items.push(message);
+    pushCapped(items, message, CAPS.messages);
     this.store.messages.set(message.session_id, items);
   }
 
@@ -99,7 +137,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addChatBookEntry(entry: ChatBookEntry): Promise<void> {
     const items = this.store.chatBook.get(entry.session_id) ?? [];
-    items.push(entry);
+    pushCapped(items, entry, CAPS.chatBook);
     this.store.chatBook.set(entry.session_id, items);
   }
 
@@ -110,7 +148,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addPlannerDecision(decision: PlannerDecision): Promise<void> {
     const items = this.store.plannerDecisions.get(decision.session_id) ?? [];
-    items.push(decision);
+    pushCapped(items, decision, CAPS.plannerDecisions);
     this.store.plannerDecisions.set(decision.session_id, items);
   }
 
@@ -121,7 +159,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addPayloadPatchLog(log: PayloadPatchLog): Promise<void> {
     const items = this.store.payloadPatchLog.get(log.session_id) ?? [];
-    items.push(log);
+    pushCapped(items, log, CAPS.payloadPatchLog);
     this.store.payloadPatchLog.set(log.session_id, items);
   }
 
@@ -132,7 +170,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addToolActionLog(log: ToolActionLog): Promise<void> {
     const items = this.store.toolActionLog.get(log.session_id) ?? [];
-    items.push(log);
+    pushCapped(items, log, CAPS.toolActionLog);
     this.store.toolActionLog.set(log.session_id, items);
   }
 
@@ -143,7 +181,7 @@ export class MemoryInterviewRepository implements InterviewRepository {
 
   async addCheckpointSnapshot(snapshot: CheckpointSnapshot): Promise<void> {
     const items = this.store.checkpointSnapshots.get(snapshot.session_id) ?? [];
-    items.push(snapshot);
+    pushCapped(items, snapshot, CAPS.checkpointSnapshots);
     this.store.checkpointSnapshots.set(snapshot.session_id, items);
   }
 

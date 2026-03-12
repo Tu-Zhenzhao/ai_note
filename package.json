@@ -19,6 +19,7 @@
     "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-markdown": "^10.1.0",
     "zod": "latest"
   },
   "devDependencies": {

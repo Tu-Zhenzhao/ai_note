@@ -11,7 +11,7 @@ import {
   SessionTrace,
   ToolActionLog,
 } from "@/lib/types";
-import { InterviewRepository, InterviewStateRecord } from "@/server/repo/contracts";
+import { InterviewRepository, InterviewStateRecord, SessionSummary } from "@/server/repo/contracts";
 import { getPool } from "@/server/repo/db";
 
 export class PostgresInterviewRepository implements InterviewRepository {
@@ -24,10 +24,33 @@ export class PostgresInterviewRepository implements InterviewRepository {
     return this.pool;
   }
 
+  async listSessions(): Promise<SessionSummary[]> {
+    const pool = this.ensurePool();
+    const result = await pool.query(
+      "select id, status, completion_level, completion_score, created_at, updated_at from interview_sessions order by updated_at desc",
+    );
+    return result.rows as SessionSummary[];
+  }
+
   async getSession(sessionId: string): Promise<InterviewSession | null> {
     const pool = this.ensurePool();
     const result = await pool.query("select * from interview_sessions where id = $1", [sessionId]);
     return (result.rows[0] as InterviewSession | undefined) ?? null;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const pool = this.ensurePool();
+    await pool.query("delete from checkpoint_snapshots where session_id = $1", [sessionId]);
+    await pool.query("delete from tool_action_log where session_id = $1", [sessionId]);
+    await pool.query("delete from payload_patch_log where session_id = $1", [sessionId]);
+    await pool.query("delete from planner_decisions where session_id = $1", [sessionId]);
+    await pool.query("delete from chat_book_entries where session_id = $1", [sessionId]);
+    await pool.query("delete from interview_messages where session_id = $1", [sessionId]);
+    await pool.query("delete from generated_contents where session_id = $1", [sessionId]);
+    await pool.query("delete from generated_briefs where session_id = $1", [sessionId]);
+    await pool.query("delete from handoff_summaries where session_id = $1", [sessionId]);
+    await pool.query("delete from interview_state where session_id = $1", [sessionId]);
+    await pool.query("delete from interview_sessions where id = $1", [sessionId]);
   }
 
   async createSession(session: InterviewSession): Promise<void> {

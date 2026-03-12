@@ -1,5 +1,13 @@
 import { END, START, Annotation, StateGraph } from "@langchain/langgraph";
-import { CompletionState, InterviewMessage, InterviewState, PlannerAction, QuestionStyle, QuestionType } from "@/lib/types";
+import {
+  CompletionState,
+  InterviewMessage,
+  InterviewState,
+  PlannerAction,
+  QuestionStyle,
+  QuestionType,
+  StructuredChoicePrompt,
+} from "@/lib/types";
 import { evaluateCompletion } from "@/server/rules/completion";
 import { detectFatigueFromMessage } from "@/server/rules/followup";
 import { generateAssistantResponse } from "@/server/services/assistant";
@@ -31,6 +39,7 @@ interface EngineContext {
   userFacingProgressNote?: string;
   sectionAdvanced?: boolean;
   currentSectionName?: string;
+  structuredChoice?: StructuredChoicePrompt | null;
   recentMessages?: InterviewMessage[];
   contextWindowInfo?: ContextWindowInfo;
   cumulativeTokens?: TokenUsage;
@@ -66,6 +75,7 @@ function migrateStateIfNeeded(state: InterviewState): void {
       phase: "interviewing",
       active_section_id: "company_understanding",
       pending_review_section_id: null,
+      pending_interaction_module: null,
       next_question_slot_id: null,
       required_open_slot_ids: [],
       transition_allowed: false,
@@ -131,6 +141,7 @@ const plannerRuntimeNode = async (input: { ctx: EngineContext }) => {
   next.userFacingProgressNote = decision.userFacingProgressNote;
   next.sectionAdvanced = decision.sectionAdvanced;
   next.currentSectionName = decision.currentSectionName;
+  next.structuredChoice = decision.structuredChoice ?? null;
 
   if (decision.plannerAction === "handoff") {
     next.nextAction = "handoff";
@@ -213,6 +224,10 @@ const graph = new StateGraph(EngineAnnotation)
   .addEdge("compose_preview", END)
   .compile();
 
+/**
+ * @deprecated Utra1 uses `runAgentTurn` in `src/server/agent/agent-runtime.ts`.
+ * This legacy orchestration graph is kept for compatibility and regression coverage.
+ */
 export async function runInterviewTurn(input: EngineContext) {
   const result = await graph.invoke({ ctx: input });
   return result.ctx;

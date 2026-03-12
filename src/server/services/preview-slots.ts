@@ -87,6 +87,23 @@ export const PREVIEW_SLOT_IDS_BY_SECTION: Record<PreviewSectionId, string[]> = {
   ],
 };
 
+export function isSlotOpenForCompletion(slot: PreviewSlot): boolean {
+  if (slot.status === "missing" || slot.status === "weak") return true;
+  // Explicit policy: Audience LinkedIn-attraction intent must be user-confirmed.
+  if (
+    slot.id === "audience_understanding.linkedin_attraction_goal" &&
+    slot.verification_state !== "user_confirmed"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function getTargetFieldForSlotId(state: InterviewState, slotId: string): string | null {
+  const slot = getPreviewSlots(state).find((entry) => entry.id === slotId);
+  return slot?.question_target_field ?? null;
+}
+
 type StatusLike = {
   status: string;
   verification_state?: VerificationState;
@@ -894,15 +911,8 @@ export function getOpenPreviewSlotsForSectionIndex(
   state: InterviewState,
   sectionIndex: number,
 ): PreviewSlot[] {
-  const isOpenForCompletion = (slot: PreviewSlot) =>
-    slot.status === "missing" ||
-    slot.status === "weak" ||
-    // Audience LinkedIn-attraction intent must be explicitly confirmed before section transition.
-    (slot.id === "audience_understanding.linkedin_attraction_goal" &&
-      slot.verification_state !== "user_confirmed");
-
   return getPreviewSlotsForSectionIndex(state, sectionIndex).filter(
-    (slot) => slot.required_for_section_completion && isOpenForCompletion(slot),
+    (slot) => slot.required_for_section_completion && isSlotOpenForCompletion(slot),
   );
 }
 
@@ -917,17 +927,12 @@ export function selectNextPreviewSlot(state: InterviewState): PreviewSlot | null
   const slots = getPreviewSlots(state);
   const priorityOrder = ["critical", "high", "medium", "low"] as const;
   const currentSectionIndex = state.conversation_meta.current_section_index;
-  const isOpenForCompletion = (slot: PreviewSlot) =>
-    slot.status === "missing" ||
-    slot.status === "weak" ||
-    (slot.id === "audience_understanding.linkedin_attraction_goal" &&
-      slot.verification_state !== "user_confirmed");
 
   for (let sectionIndex = currentSectionIndex; sectionIndex < PREVIEW_SECTION_ORDER.length; sectionIndex += 1) {
     const sectionSlots = slots.filter(
       (slot) =>
         slot.section === getSectionIdForIndex(sectionIndex) &&
-        isOpenForCompletion(slot) &&
+        isSlotOpenForCompletion(slot) &&
         slot.required_for_section_completion,
     );
 

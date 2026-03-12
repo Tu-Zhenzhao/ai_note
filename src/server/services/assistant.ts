@@ -5,15 +5,12 @@ import {
   PlannerAction,
   QuestionStyle,
   QuestionType,
+  TaskType,
 } from "@/lib/types";
 import { generateModelText } from "@/server/model/adapters";
-import { interviewSystemPrompt, interviewUserPrompt } from "@/server/prompts/interview";
+import { interviewSystemPrompt, interviewUserPrompt, loadTaskPrompt, TaskPromptKey } from "@/server/prompts/interview";
 import { getCurrentSectionName } from "@/server/rules/checklist";
-import {
-  getOpenPreviewSlotsForSectionIndex,
-  PREVIEW_SECTION_ORDER,
-  syncPreviewSlots,
-} from "@/server/services/preview-slots";
+import { PREVIEW_SECTION_ORDER } from "@/server/services/preview-slots";
 
 function humanizeSchemaText(text: string): string {
   return text
@@ -52,7 +49,11 @@ function stripUnauthorizedTransitions(text: string, allowTransition: boolean): s
   return kept.join(" ").trim();
 }
 
-function deterministicWorkflowLine(workflow: InterviewWorkflowState, fallbackSectionName: string): string {
+/**
+ * @deprecated No longer prepended to responses — section status is now shown
+ * as a UI header in the chat panel instead.
+ */
+function _deterministicWorkflowLine(workflow: InterviewWorkflowState, fallbackSectionName: string): string {
   const sectionName = sectionNameFromId(workflow.active_section_id) || fallbackSectionName;
   if (workflow.phase === "confirming_section") {
     const pending = sectionNameFromId(workflow.pending_review_section_id);
@@ -70,17 +71,8 @@ function minimalFallback(params: {
 }): string {
   const captured = params.capturedFieldsThisTurn.length;
   const ack = captured > 1 ? "Understood." : captured > 0 ? "Got it." : "I see.";
-  syncPreviewSlots(params.state);
-  const openSlots = getOpenPreviewSlotsForSectionIndex(
-    params.state,
-    params.state.conversation_meta.current_section_index,
-  );
-  const progress =
-    openSlots[0]?.question_label ??
-    params.userFacingProgressNote ??
-    `We're still on ${params.currentSectionName}.`;
   const question = sanitizeQuestion(params.nextQuestion);
-  return `${ack} We're still on ${params.currentSectionName}. ${progress.replace(/[?]+/g, ".")} ${question}`;
+  return `${ack} ${question}`;
 }
 
 export async function generateAssistantResponse(params: {
@@ -88,6 +80,7 @@ export async function generateAssistantResponse(params: {
   userMessage: string;
   nextQuestion: string;
   questionType: QuestionType;
+  taskType?: TaskType;
   questionStyle?: QuestionStyle;
   plannerAction?: PlannerAction;
   userFacingProgressNote?: string;
@@ -104,12 +97,16 @@ export async function generateAssistantResponse(params: {
     return "We've gathered strong context. This now needs a human strategist for the nuanced parts. I've prepared a handoff summary for them.";
   }
 
-  const systemPrompt = interviewSystemPrompt();
+  const taskKey: TaskPromptKey = params.taskType ?? "answer_question";
+  const basePrompt = interviewSystemPrompt();
+  const taskPrompt = loadTaskPrompt(taskKey);
+  const systemPrompt = `${basePrompt}\n\n---\n\n${taskPrompt}`;
   const userPrompt = interviewUserPrompt({
     userMessage: params.userMessage,
     state: params.state,
     nextQuestion: params.nextQuestion,
     questionType: params.questionType,
+    taskType: params.taskType ?? "answer_question",
     capturedFieldsThisTurn: diagnostics.captured_fields_this_turn,
     capturedChecklistItemsThisTurn: diagnostics.captured_checklist_items_this_turn,
     recentMessages: params.recentMessages ?? [],
@@ -136,11 +133,10 @@ export async function generateAssistantResponse(params: {
       });
     }
     const cleaned = stripUnauthorizedTransitions(response, workflow.transition_allowed);
-    const workflowLine = deterministicWorkflowLine(workflow, sectionName);
     if (!cleaned) {
-      return `${workflowLine} ${sanitizeQuestion(params.nextQuestion)}`;
+      return sanitizeQuestion(params.nextQuestion);
     }
-    return `${workflowLine} ${cleaned}`.trim();
+    return cleaned;
   } catch {
     return minimalFallback({
       nextQuestion: params.nextQuestion,

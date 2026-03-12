@@ -41,10 +41,11 @@ export function getSectionVisualState(
   configKey: string,
   currentSectionName: string,
   confirmingSectionId: ReviewSectionId | null,
+  isStructuredHelpSelection = false,
 ) {
   const focusKey = getPreviewFocusKey(currentSectionName, confirmingSectionId);
   return {
     isConfirming: confirmingSectionId === configKey,
-    isActive: !confirmingSectionId && focusKey === configKey,
+    isActive: !confirmingSectionId && !isStructuredHelpSelection && focusKey === configKey,
   };
 }

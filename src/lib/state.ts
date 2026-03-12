@@ -70,6 +70,7 @@ export function createInitialState(interviewId?: string): InterviewState {
       phase: "interviewing",
       active_section_id: "company_understanding",
       pending_review_section_id: null,
+      pending_interaction_module: null,
       next_question_slot_id: null,
       required_open_slot_ids: [],
       transition_allowed: false,

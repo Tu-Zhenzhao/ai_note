@@ -1,10 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   getSectionVisualState,
   getPreviewFocusKey,
-  REVIEW_SECTION_BY_INDEX,
   ReviewSectionId,
   SECTION_NAME_BY_ID,
 } from "@/components/interview-review-state";
@@ -62,7 +62,32 @@ type WorkflowStatePayload = {
   phase?: string;
   active_section_id?: string;
   pending_review_section_id?: string | null;
+  pending_interaction_module?: "confirm_section" | "select_help_option" | "none" | null;
   transition_allowed?: boolean;
+  required_open_slot_ids?: string[];
+  last_transition_reason?: string | null;
+};
+
+type StructuredChoicePayload = {
+  slot_id: string;
+  prompt: string;
+  options: Array<{ id: string; label: string; value: string }>;
+  allow_other: boolean;
+  other_placeholder?: string;
+};
+
+type InteractionModulePayload = {
+  type: "confirm_section" | "select_help_option" | "none";
+  payload: Record<string, unknown>;
+};
+
+type SessionEntry = {
+  id: string;
+  status: string;
+  completion_level: string;
+  completion_score: number;
+  created_at: string;
+  updated_at: string;
 };
 
 const REVIEW_ITEMS: Record<ReviewSectionId, ReviewItemConfig[]> = {
@@ -115,26 +140,6 @@ function valueToDisplay(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
   return String(value);
-}
-
-function isSectionCompleteInPreview(
-  preview: Record<string, unknown> | null,
-  sectionId: ReviewSectionId,
-): boolean {
-  const internal = preview?.internal_preview as Record<string, unknown> | undefined;
-  const slots = internal?.preview_slots as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(slots)) return false;
-
-  const required = slots.filter(
-    (slot) =>
-      slot.section === sectionId &&
-      slot.required_for_section_completion === true,
-  );
-  if (required.length === 0) return false;
-
-  return required.every(
-    (slot) => slot.status !== "missing" && slot.status !== "weak",
-  );
 }
 
 function buildEditPayload(
@@ -1083,6 +1088,12 @@ export function InterviewApp() {
   const [reviewedSections, setReviewedSections] = useState<Record<string, boolean>>({});
   const [confirmingSectionId, setConfirmingSectionId] = useState<ReviewSectionId | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkflowStatePayload | null>(null);
+  const [structuredChoice, setStructuredChoice] = useState<StructuredChoicePayload | null>(null);
+  const [structuredOtherDraft, setStructuredOtherDraft] = useState("");
+  const [taskType, setTaskType] = useState<string | null>(null);
+  const [sessionList, setSessionList] = useState<SessionEntry[]>([]);
+  const [showSessionPanel, setShowSessionPanel] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -1131,14 +1142,34 @@ export function InterviewApp() {
   }, [messages, loading]);
 
   function maybeOpenSectionReview(
-    payload: Record<string, unknown>,
-    updatedPreview: Record<string, unknown> | null,
+    modulePayload: InteractionModulePayload | null,
+    _updatedPreview: Record<string, unknown> | null,
     workflow?: WorkflowStatePayload | null,
   ) {
-    if (workflow?.phase) {
-      const pending = workflow.pending_review_section_id;
-      const isReviewablePending =
-        !!pending && pending in REVIEW_ITEMS;
+    const fromInteraction = modulePayload?.type === "confirm_section"
+      ? (modulePayload.payload.section_id as string | undefined)
+      : null;
+    const pending = fromInteraction ?? workflow?.pending_review_section_id;
+    const isReviewablePending = !!pending && pending in REVIEW_ITEMS;
+
+    if (modulePayload?.type === "confirm_section" && isReviewablePending) {
+      const sectionId = pending as ReviewSectionId;
+      setStructuredChoice(null);
+      setStructuredOtherDraft("");
+      setConfirmingSectionId(sectionId);
+      if (!reviewState || reviewState.sectionId !== sectionId) {
+        setReviewState({
+          sectionId,
+          stepIndex: 0,
+          isEditing: false,
+          draftValue: "",
+          submitting: false,
+        });
+      }
+      return;
+    }
+
+    if (modulePayload?.type !== "confirm_section" && workflow?.phase) {
       if (workflow.phase === "confirming_section" && isReviewablePending) {
         const sectionId = pending as ReviewSectionId;
         setConfirmingSectionId(sectionId);
@@ -1159,68 +1190,34 @@ export function InterviewApp() {
           setReviewState(null);
         }
       }
+    }
+
+    if (modulePayload?.type === "select_help_option") {
+      const payload = modulePayload.payload;
+      setStructuredChoice({
+        slot_id: String(payload.slot_id ?? ""),
+        prompt: String(payload.prompt ?? ""),
+        options: Array.isArray(payload.options)
+          ? (payload.options as Array<{ id: string; label: string; value: string }>)
+          : [],
+        allow_other: Boolean(payload.allow_other ?? true),
+        other_placeholder:
+          typeof payload.other_placeholder === "string" ? payload.other_placeholder : undefined,
+      });
+      setConfirmingSectionId(null);
+      if (reviewState) setReviewState(null);
       return;
     }
 
-    if (!updatedPreview || reviewState) return;
-
-    const currentIndex =
-      typeof payload.current_section_index === "number"
-        ? payload.current_section_index
-        : currentSectionIndex;
-
-    let candidate: ReviewSectionId | null = null;
-    if (payload.section_advanced === true && currentIndex > 0) {
-      candidate = REVIEW_SECTION_BY_INDEX[currentIndex - 1] ?? null;
-    }
-
-    if (!candidate && currentIndex > 0) {
-      for (let i = 0; i < currentIndex; i += 1) {
-        const sectionId = REVIEW_SECTION_BY_INDEX[i];
-        if (
-          sectionId &&
-          !reviewedSections[sectionId] &&
-          REVIEW_ITEMS[sectionId] &&
-          isSectionCompleteInPreview(updatedPreview, sectionId)
-        ) {
-          candidate = sectionId;
-          break;
-        }
-      }
-    }
-
-    if (!candidate) {
-      const currentId = REVIEW_SECTION_BY_INDEX[currentIndex];
-      if (
-        currentId &&
-        !reviewedSections[currentId] &&
-        REVIEW_ITEMS[currentId] &&
-        isSectionCompleteInPreview(updatedPreview, currentId)
-      ) {
-        candidate = currentId;
-      }
-    }
-
-    if (
-      candidate &&
-      !reviewedSections[candidate] &&
-      REVIEW_ITEMS[candidate]?.length > 0 &&
-      isSectionCompleteInPreview(updatedPreview, candidate)
-    ) {
-      setConfirmingSectionId(candidate);
-      setReviewState({
-        sectionId: candidate,
-        stepIndex: 0,
-        isEditing: false,
-        draftValue: "",
-        submitting: false,
-      });
+    if (modulePayload?.type === "none") {
+      setStructuredChoice(null);
+      setStructuredOtherDraft("");
     }
   }
 
-  async function sendMessage(event?: FormEvent) {
+  async function sendMessage(event?: FormEvent, overrideInput?: string) {
     event?.preventDefault();
-    const userText = input.trim();
+    const userText = (overrideInput ?? input).trim();
     if (!sessionId || !userText || loading) return;
 
     setLoading(true);
@@ -1243,9 +1240,17 @@ export function InterviewApp() {
       ]);
       const updatedPreview = data.updated_preview as Record<string, unknown> | null;
       const receivedWorkflow = (data.workflow_state as WorkflowStatePayload | undefined) ?? null;
+      const receivedInteractionModule =
+        (data.interaction_module as InteractionModulePayload | undefined) ?? null;
       setWorkflowState(receivedWorkflow);
+      if (!receivedInteractionModule || receivedInteractionModule.type !== "select_help_option") {
+        setStructuredChoice(null);
+        setStructuredOtherDraft("");
+      }
       setPreview(updatedPreview);
-      setCompletionState(data.completion_state as Record<string, unknown>);
+      if (data.completion_state) {
+        setCompletionState(data.completion_state as Record<string, unknown>);
+      }
       if (typeof data.current_section_index === "number") {
         setCurrentSectionIndex(data.current_section_index);
       }
@@ -1268,8 +1273,9 @@ export function InterviewApp() {
       }
       if (data.context_window) setContextWindow(data.context_window as ContextWindowData);
       if (data.cumulative_tokens) setCumulativeTokens(data.cumulative_tokens as CumulativeTokenData);
+      if (typeof data.planner_task_type === "string") setTaskType(data.planner_task_type);
       setTurnCount((prev) => prev + 1);
-      maybeOpenSectionReview(data, updatedPreview, receivedWorkflow);
+      maybeOpenSectionReview(receivedInteractionModule, updatedPreview, receivedWorkflow);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -1284,7 +1290,108 @@ export function InterviewApp() {
     }
   }
 
+  async function fetchSessions() {
+    setSessionLoading(true);
+    try {
+      const res = await fetch("/api/interview/sessions");
+      const data = (await res.json()) as { sessions?: SessionEntry[] };
+      setSessionList(data.sessions ?? []);
+    } catch {
+      setSessionList([]);
+    } finally {
+      setSessionLoading(false);
+    }
+  }
+
+  function handleNewSession() {
+    const key = "interviewer_session_id";
+    const newId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `session_${Date.now()}`;
+    try {
+      window.localStorage.setItem(key, newId);
+    } catch { /* noop */ }
+    setSessionId(newId);
+    setMessages([
+      { role: "assistant", content: "Could you briefly describe what your company does?" },
+    ]);
+    setPreview(null);
+    setCompletionState(null);
+    setCurrentSectionIndex(0);
+    setCurrentSectionName("Company Understanding");
+    setContextWindow(null);
+    setCumulativeTokens(null);
+    setTurnCount(0);
+    setExpandedSection(0);
+    setReviewState(null);
+    setReviewedSections({});
+    setConfirmingSectionId(null);
+    setWorkflowState(null);
+    setStructuredChoice(null);
+    setStructuredOtherDraft("");
+    setTaskType(null);
+    setError(null);
+    fetchSessions();
+  }
+
+  async function handleDeleteSession(targetId: string) {
+    if (!confirm(`Delete session ${targetId.slice(0, 8)}…? This cannot be undone.`)) return;
+    try {
+      await fetch("/api/interview/sessions/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: targetId }),
+      });
+      if (targetId === sessionId) {
+        handleNewSession();
+      } else {
+        fetchSessions();
+      }
+    } catch {
+      setError("Failed to delete session");
+    }
+  }
+
+  function handleSwitchSession(targetId: string) {
+    const key = "interviewer_session_id";
+    try {
+      window.localStorage.setItem(key, targetId);
+    } catch { /* noop */ }
+    setSessionId(targetId);
+    setMessages([
+      { role: "assistant", content: "Resuming your session..." },
+    ]);
+    setPreview(null);
+    setCompletionState(null);
+    setReviewState(null);
+    setReviewedSections({});
+    setConfirmingSectionId(null);
+    setWorkflowState(null);
+    setStructuredChoice(null);
+    setStructuredOtherDraft("");
+    setTaskType(null);
+    setError(null);
+    setShowSessionPanel(false);
+  }
+
   const sections = preview?.sections as Record<string, unknown> | undefined;
+  const workflowBlockers = (() => {
+    const internal = preview?.internal_preview as Record<string, unknown> | undefined;
+    const slots = internal?.preview_slots as Array<Record<string, unknown>> | undefined;
+    const openSlotIds = workflowState?.required_open_slot_ids ?? [];
+    if (!Array.isArray(slots) || openSlotIds.length === 0) return [];
+    return openSlotIds
+      .map((slotId) => {
+        const slot = slots.find((candidate) => candidate.id === slotId);
+        return (
+          (slot?.question_label as string | undefined) ??
+          (slot?.label as string | undefined) ??
+          slotId
+        );
+      })
+      .filter(Boolean);
+  })();
   const score = (completionState?.completion_score as number) ?? 0;
   const level = (completionState?.completion_level as string) ?? "incomplete";
   const verCoverage = Math.round(((completionState?.verification_coverage as number) ?? 0) * 100);
@@ -1370,10 +1477,16 @@ export function InterviewApp() {
           );
         }
       }
+      setStructuredChoice(null);
+      setStructuredOtherDraft("");
 
       setReviewedSections((prev) => ({ ...prev, [reviewState.sectionId]: true }));
       setConfirmingSectionId(null);
       setReviewState(null);
+
+      const sectionLabel = SECTION_NAME_BY_ID[reviewState.sectionId] ?? "this section";
+      const autoReply = `Looks good — I'm happy with ${sectionLabel}. Let's continue.`;
+      sendMessage(undefined, autoReply);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown review error");
       setReviewState((prev) => (prev ? { ...prev, submitting: false } : prev));
@@ -1418,6 +1531,8 @@ export function InterviewApp() {
         const wf = data.workflow_state as WorkflowStatePayload;
         setWorkflowState(wf);
       }
+      setStructuredChoice(null);
+      setStructuredOtherDraft("");
 
       const total = activeReviewItems.length;
       const atLastStep = reviewState.stepIndex >= total - 1;
@@ -1489,7 +1604,164 @@ export function InterviewApp() {
           >
             AI Content Strategist
           </span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                setShowSessionPanel(!showSessionPanel);
+                if (!showSessionPanel) fetchSessions();
+              }}
+              style={{
+                background: "var(--color-chip)",
+                color: "var(--color-text)",
+                borderRadius: 999,
+                padding: "5px 14px",
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+              type="button"
+            >
+              Sessions
+            </button>
+            <button
+              onClick={handleNewSession}
+              style={{
+                background: "var(--color-accent)",
+                color: "#fff",
+                borderRadius: 999,
+                padding: "5px 14px",
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+              type="button"
+            >
+              + New Session
+            </button>
+          </div>
         </div>
+
+        {/* ── Session management panel ── */}
+        {showSessionPanel && (
+          <div
+            style={{
+              background: "var(--color-elev)",
+              borderRadius: "var(--radius-m)",
+              boxShadow: "var(--shadow-2)",
+              padding: 16,
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)" }}>
+                All Sessions
+              </span>
+              <button
+                onClick={() => setShowSessionPanel(false)}
+                style={{
+                  background: "transparent",
+                  color: "var(--color-muted)",
+                  fontSize: 18,
+                  padding: "0 4px",
+                  lineHeight: 1,
+                }}
+                type="button"
+              >
+                &times;
+              </button>
+            </div>
+            {sessionLoading ? (
+              <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "8px 0" }}>Loading...</div>
+            ) : sessionList.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "8px 0" }}>
+                No sessions found. Click &quot;+ New Session&quot; to start one.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {sessionList.map((entry) => {
+                  const isCurrent = entry.id === sessionId;
+                  const dateStr = new Date(entry.updated_at || entry.created_at).toLocaleString();
+                  const scorePercent = Math.round((entry.completion_score ?? 0) * 100);
+                  return (
+                    <div
+                      key={entry.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 12px",
+                        borderRadius: "var(--radius-s)",
+                        background: isCurrent ? "var(--color-accent-soft)" : "var(--color-chip)",
+                        border: isCurrent ? "1px solid var(--color-accent)" : "1px solid transparent",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)" }}>
+                          {entry.id.slice(0, 8)}...
+                          {isCurrent && (
+                            <span
+                              style={{
+                                marginLeft: 6,
+                                fontSize: 10,
+                                fontWeight: 500,
+                                background: "var(--color-accent)",
+                                color: "#fff",
+                                borderRadius: 999,
+                                padding: "1px 6px",
+                              }}
+                            >
+                              active
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--color-muted)", marginTop: 2 }}>
+                          {dateStr} &middot; {entry.completion_level ?? "incomplete"} &middot; {scorePercent}%
+                        </div>
+                      </div>
+                      {!isCurrent && (
+                        <button
+                          onClick={() => handleSwitchSession(entry.id)}
+                          style={{
+                            background: "var(--color-elev)",
+                            color: "var(--color-text)",
+                            borderRadius: 999,
+                            padding: "3px 10px",
+                            fontSize: 11,
+                            fontWeight: 500,
+                            border: "1px solid var(--color-line)",
+                          }}
+                          type="button"
+                        >
+                          Switch
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteSession(entry.id)}
+                        style={{
+                          background: "transparent",
+                          color: "#c53030",
+                          borderRadius: 999,
+                          padding: "3px 10px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          border: "1px solid #fed7d7",
+                        }}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Main slab ── */}
         <div
@@ -1570,6 +1842,75 @@ export function InterviewApp() {
               </span>
             </div>
 
+            {/* Section status header */}
+            <div
+              style={{
+                padding: "8px 24px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                borderBottom: "1px solid var(--color-border, #eee)",
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: confirmingSectionId
+                    ? "#D4A017"
+                    : "#0D7B64",
+                  display: "inline-block",
+                  animation: confirmingSectionId
+                    ? "review-breathe 1.8s ease-in-out infinite"
+                    : "none",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: confirmingSectionId
+                    ? "#8a6200"
+                    : "var(--color-text)",
+                }}
+              >
+                {confirmingSectionId
+                  ? `Reviewing: ${SECTION_NAME_BY_ID[confirmingSectionId]}`
+                  : currentSectionName}
+              </span>
+              {taskType && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    fontWeight: 500,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background:
+                      taskType === "answer_question"
+                        ? "#EAF5F2"
+                        : taskType === "ask_for_help"
+                          ? "#EDE9FE"
+                          : "#F0F4FF",
+                    color:
+                      taskType === "answer_question"
+                        ? "#0D7B64"
+                        : taskType === "ask_for_help"
+                          ? "#6D28D9"
+                          : "#3B6FCF",
+                  }}
+                >
+                  {taskType === "answer_question"
+                    ? "Answering"
+                    : taskType === "ask_for_help"
+                      ? "Helping"
+                      : "Exploring"}
+                </span>
+              )}
+            </div>
+
             {/* Messages area */}
             <div
               style={{
@@ -1603,6 +1944,7 @@ export function InterviewApp() {
                     </div>
                   )}
                   <div
+                    className={msg.role === "assistant" ? "chat-markdown" : ""}
                     style={{
                       borderRadius:
                         msg.role === "user"
@@ -1617,10 +1959,13 @@ export function InterviewApp() {
                         msg.role === "user" ? "#fff" : "var(--color-text)",
                       fontSize: 14,
                       lineHeight: 1.65,
-                      whiteSpace: "pre-wrap",
                     }}
                   >
-                    {msg.content}
+                    {msg.role === "assistant" ? (
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    ) : (
+                      <span style={{ whiteSpace: "pre-wrap" }}>{msg.content}</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1720,6 +2065,70 @@ export function InterviewApp() {
                     )
                   }
                 />
+              )}
+              {!reviewState && structuredChoice && (
+                <div
+                  style={{
+                    border: "1px solid rgba(212,160,23,0.45)",
+                    borderRadius: "var(--radius-m)",
+                    background: "#FFFCF4",
+                    boxShadow: "var(--shadow-2)",
+                    padding: 12,
+                    marginBottom: 10,
+                    animation: "review-step-in 220ms ease",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#8a6200", marginBottom: 8 }}>
+                    Quick selection
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--color-text)", marginBottom: 10 }}>
+                    {structuredChoice.prompt}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                    {structuredChoice.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => sendMessage(undefined, option.value)}
+                        disabled={loading}
+                        style={{
+                          background: "var(--color-chip)",
+                          color: "var(--color-text)",
+                          borderRadius: 999,
+                          padding: "7px 12px",
+                          fontSize: 12,
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {structuredChoice.allow_other && (
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                      <textarea
+                        rows={2}
+                        value={structuredOtherDraft}
+                        onChange={(e) => setStructuredOtherDraft(e.target.value)}
+                        placeholder={structuredChoice.other_placeholder || "Other..."}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => sendMessage(undefined, structuredOtherDraft)}
+                        disabled={loading || !structuredOtherDraft.trim()}
+                        style={{
+                          background: "var(--color-cta)",
+                          color: "#fff",
+                          borderRadius: 999,
+                          padding: "7px 12px",
+                          fontSize: 12,
+                          height: 40,
+                        }}
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               <form
                 onSubmit={sendMessage}
@@ -1897,6 +2306,17 @@ export function InterviewApp() {
                   ? `Confirming: ${SECTION_NAME_BY_ID[confirmingSectionId]}`
                   : `Currently discussing: ${currentSectionName}`}
               </div>
+              {!confirmingSectionId && workflowBlockers.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "#8a6200",
+                  }}
+                >
+                  Still waiting on: {workflowBlockers.slice(0, 2).join(" · ")}
+                </div>
+              )}
             </div>
 
             {/* Accordion sections */}
@@ -1913,6 +2333,7 @@ export function InterviewApp() {
                   config.key,
                   currentSectionName,
                   confirmingSectionId,
+                  workflowState?.phase === "structured_help_selection",
                 );
                 const verifications = Array.isArray(sectionData)
                   ? undefined

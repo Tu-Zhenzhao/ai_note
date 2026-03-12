@@ -30,6 +30,7 @@ export type QuestionType =
 
 export type FollowUpExitStatus = "resolved" | "good_enough_for_now" | "defer_and_continue";
 export type PlannerAction = "ask" | "confirm" | "summarize" | "checkpoint" | "handoff" | "generate_brief";
+export type TaskType = "answer_question" | "ask_for_help" | "other_discussion";
 
 export type QuestionStyle =
   | "reflect_and_advance"
@@ -129,18 +130,46 @@ export interface ConversationMeta {
 export type WorkflowPhase =
   | "interviewing"
   | "confirming_section"
+  | "structured_help_selection"
   | "checkpoint"
   | "generation_ready"
   | "handoff";
+
+export type InteractionModuleType = "confirm_section" | "select_help_option" | "none";
+
+export interface InteractionModule {
+  type: InteractionModuleType;
+  payload: Record<string, unknown>;
+}
 
 export interface InterviewWorkflowState {
   phase: WorkflowPhase;
   active_section_id: PreviewSectionId;
   pending_review_section_id: PreviewSectionId | null;
+  pending_interaction_module: InteractionModuleType | null;
   next_question_slot_id: string | null;
   required_open_slot_ids: string[];
   transition_allowed: boolean;
   last_transition_reason: string | null;
+}
+
+export interface PlannerClassification {
+  task_type: TaskType;
+  rationale: string;
+}
+
+export interface StructuredChoiceOption {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export interface StructuredChoicePrompt {
+  slot_id: string;
+  prompt: string;
+  options: StructuredChoiceOption[];
+  allow_other: boolean;
+  other_placeholder?: string;
 }
 
 // ── Domain Sub-Types ────────────────────────────────────────────────
@@ -690,4 +719,15 @@ export interface RuntimeMetadata {
   model_routing_history: Array<{ turn_id: string; model: string; provider: string; at: string }>;
   state_change_log: Array<{ turn_id: string; changed_fields: string[]; at: string }>;
   checkpoint_history: Array<{ turn_id: string; approved: boolean; at: string }>;
+}
+
+export interface AgentTurnResult {
+  assistant_message: string;
+  interaction_module: InteractionModule;
+  updated_preview: Record<string, unknown>;
+  workflow_state: InterviewWorkflowState;
+  planner_task_type: TaskType;
+  model_route_used: Record<string, unknown> | null;
+  tool_trace: ToolActionLog[];
+  planner_trace: Record<string, unknown>;
 }
