@@ -3,17 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS='--max-old-space-size=4096 --expose-gc' next dev",
+    "dev:stable": "NODE_OPTIONS='--max-old-space-size=4096 --expose-gc' next dev --webpack",
     "build": "next build",
+    "migrate": "node migrations/run.mjs",
     "start": "next start",
+    "start:prodlike": "next build && next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "check:legacy-imports": "node scripts/check-legacy-imports.mjs",
+    "test": "npm run check:legacy-imports && vitest run"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "latest",
     "@ai-sdk/google": "latest",
     "@ai-sdk/openai": "latest",
-    "@langchain/langgraph": "latest",
     "ai": "latest",
     "next": "latest",
     "pg": "latest",

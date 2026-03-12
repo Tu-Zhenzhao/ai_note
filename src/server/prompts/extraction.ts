@@ -7,6 +7,9 @@ CRITICAL RULES:
 - SUMMARIZE, do not copy. Turn user's words into concise, professional descriptions. A one-liner should be ONE sentence. An industry should be 1-3 words.
 - Be GENEROUS with extraction. If the user mentions anything relevant to any field, extract it.
 - Extract across ALL fields, not just the current module. If the user mentions their audience while answering a company question, still extract the audience info.
+- Use full chat history for REFERENCE and disambiguation only. The latest user turn is the PRIMARY evidence source.
+- Do NOT re-capture old facts from history as new updates when the latest user turn does not restate them.
+- If the user gives a short option/choice answer (like "A"/"B"/"yes"), map it to the active question context from recent assistant turns instead of extracting unrelated historical facts.
 - Each string field should be a clean, concise summary (1-2 sentences max).
 - Each array field should contain short, distinct items (not full paragraphs).
 - If information is not mentioned, leave the field undefined. Do not make up data.
@@ -46,8 +49,15 @@ FIELD GUIDE:
 - source_material_link: A URL if mentioned.`;
 }
 
-export function extractionUserPrompt(userMessage: string, currentModule: string) {
+export function extractionUserPrompt(
+  userMessage: string,
+  currentModule: string,
+  chatHistory: string,
+) {
   return `The user is currently answering questions about: ${currentModule}
+
+Full chat history:
+${chatHistory || "(no prior history)"}
 
 User's message:
 "${userMessage}"

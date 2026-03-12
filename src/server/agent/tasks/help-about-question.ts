@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { InteractionModule, InterviewState, ToolActionLog } from "@/lib/types";
 import { generateModelObject } from "@/server/model/adapters";
+import { buildTurnIntent } from "@/server/agent/turn-intent";
 import { InterviewRepository } from "@/server/repo/contracts";
 import { generateAssistantResponse } from "@/server/services/assistant";
 import { getTargetFieldForSlotId } from "@/server/services/preview-slots";
@@ -34,6 +35,7 @@ export async function runHelpAboutQuestionTask(params: {
   turnId: string;
   userMessage: string;
   state: InterviewState;
+  language?: "en" | "zh";
 }): Promise<HelpAboutQuestionResult> {
   const slotId = params.state.workflow.next_question_slot_id ?? "unknown_slot";
   const targetField = getTargetFieldForSlotId(params.state, slotId) ?? "the current strategic question";
@@ -73,7 +75,14 @@ export async function runHelpAboutQuestionTask(params: {
   });
 
   const recentMessages = await params.repo.listMessages(params.sessionId);
+  const turnIntent = buildTurnIntent({
+    state: params.state,
+    taskType: "ask_for_help",
+    responseMode: "help_selection",
+  });
+  params.state.system_assessment.last_turn_intent = turnIntent;
   const assistantMessage = await generateAssistantResponse({
+    turnIntent,
     state: params.state,
     userMessage: params.userMessage,
     nextQuestion: `${suggestions.prompt} Pick one option or write your own.`,
@@ -83,6 +92,7 @@ export async function runHelpAboutQuestionTask(params: {
     questionStyle: "guided_choice",
     recentMessages,
     workflowState: params.state.workflow,
+    language: params.language,
   });
 
   return {

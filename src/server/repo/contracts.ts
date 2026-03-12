@@ -41,7 +41,7 @@ export interface InterviewRepository {
   getState(sessionId: string): Promise<InterviewStateRecord | null>;
   upsertState(record: InterviewStateRecord): Promise<void>;
 
-  listMessages(sessionId: string): Promise<InterviewMessage[]>;
+  listMessages(sessionId: string, limit?: number): Promise<InterviewMessage[]>;
   addMessage(message: InterviewMessage): Promise<void>;
 
   addBrief(brief: GeneratedBrief): Promise<void>;

@@ -3,11 +3,10 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
-  getSectionVisualState,
-  getPreviewFocusKey,
   ReviewSectionId,
-  SECTION_NAME_BY_ID,
 } from "@/components/interview-review-state";
+import { useLanguage } from "@/lib/language-context";
+import { buildPreviewFromSuperV1State, SuperV1AnswerView } from "@/lib/superv1-preview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,52 +75,95 @@ type StructuredChoicePayload = {
   other_placeholder?: string;
 };
 
-type InteractionModulePayload = {
-  type: "confirm_section" | "select_help_option" | "none";
-  payload: Record<string, unknown>;
+type SuperV1StatePayload = {
+  conversationId: string;
+  status: "active" | "completed";
+  activeSectionId: string;
+  currentQuestionId: string | null;
+  sections: Array<{
+    section_id: string;
+    open_required_question_ids: string[];
+  }>;
+  completion: {
+    ratio: number;
+    total: number;
+    filled: number;
+    confirmed: number;
+    needs_clarification: number;
+  };
+  answers: SuperV1AnswerView[];
 };
 
-type SessionEntry = {
+type SuperV1TurnPayload = {
+  conversationId: string;
+  reply: string;
+  state: SuperV1StatePayload;
+  next_question: {
+    question_id: string | null;
+    question_text: string | null;
+  };
+  intent: {
+    intent: "answer_question" | "ask_for_help" | "other_discussion";
+    confidence: number;
+    reason: string;
+  };
+  planner_result: {
+    active_section_id: string;
+    unresolved_required_question_ids: string[];
+  };
+};
+
+type SuperV1ConversationEntry = {
   id: string;
-  status: string;
-  completion_level: string;
-  completion_score: number;
+  status: "active" | "completed";
+  active_section_id: string;
+  current_question_id: string | null;
   created_at: string;
   updated_at: string;
 };
 
-const REVIEW_ITEMS: Record<ReviewSectionId, ReviewItemConfig[]> = {
-  company_understanding: [
-    { fieldKey: "company_summary", label: "Summary", hint: "Does this clearly represent your company?" },
-    { fieldKey: "short_brand_story", label: "Brand story", hint: "Is this the right belief/story behind your brand?" },
-    { fieldKey: "main_offering", label: "Main offering", hint: "Is this the best description of your main offering?" },
-    { fieldKey: "problem_solved", label: "Problem solved", hint: "Does this capture the core problem you solve?" },
-    { fieldKey: "differentiator", label: "Differentiator", hint: "Does this describe what makes you different?" },
-  ],
-  audience_understanding: [
-    { fieldKey: "primary_audience", label: "Primary audience", hint: "Is this the right audience definition?" },
-    { fieldKey: "core_problems", label: "Core problems", hint: "Are these the right pain points?" },
-    { fieldKey: "desired_outcomes", label: "Desired outcomes", hint: "Are these the outcomes they care about?" },
-    { fieldKey: "who_to_attract_on_linkedin", label: "LinkedIn attraction goal", hint: "Is this who you want to attract on LinkedIn?" },
-  ],
-  linkedin_content_strategy: [
-    { fieldKey: "main_content_goal", label: "Main content goal", hint: "Is this the right content goal?" },
-    { fieldKey: "content_positioning", label: "Content positioning", hint: "Is this how you want to be positioned?" },
-    { fieldKey: "topics_to_emphasize", label: "Topics to emphasize", hint: "Are these the right topics to focus on?" },
-    { fieldKey: "topics_to_avoid", label: "Topics to avoid", hint: "Are these the topics you want to avoid?" },
-  ],
-  evidence_and_proof_assets: [
-    { fieldKey: "narrative_proof", label: "Narrative proof", hint: "Is this the right proof narrative?" },
-    { fieldKey: "metrics_proof_points", label: "Metrics", hint: "Are these proof metrics accurate?" },
-    { fieldKey: "supporting_assets", label: "Supporting assets", hint: "Are these the assets we should use?" },
-    { fieldKey: "missing_proof_areas", label: "Missing proof areas", hint: "Is anything missing here?" },
-  ],
-  generation_plan: [
-    { fieldKey: "planned_first_topic", label: "First topic", hint: "Is this the best first topic?" },
-    { fieldKey: "planned_format", label: "Format", hint: "Is this the right format to start with?" },
-    { fieldKey: "proof_plan", label: "Proof plan", hint: "Does this proof plan work for you?" },
-  ],
+type SuperV1TurnRecord = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  message_text: string;
+  created_at: string;
 };
+
+function getReviewItems(t: (key: string, params?: Record<string, string>) => string): Record<ReviewSectionId, ReviewItemConfig[]> {
+  return {
+    company_understanding: [
+      { fieldKey: "company_summary", label: t("label_summary"), hint: t("hint_company_summary") },
+      { fieldKey: "short_brand_story", label: t("label_brand_story"), hint: t("hint_brand_story") },
+      { fieldKey: "main_offering", label: t("label_main_offering"), hint: t("hint_main_offering") },
+      { fieldKey: "problem_solved", label: t("label_problem_solved"), hint: t("hint_problem_solved") },
+      { fieldKey: "differentiator", label: t("label_differentiator"), hint: t("hint_differentiator") },
+    ],
+    audience_understanding: [
+      { fieldKey: "primary_audience", label: t("label_primary_audience"), hint: t("hint_primary_audience") },
+      { fieldKey: "core_problems", label: t("label_core_problems"), hint: t("hint_core_problems") },
+      { fieldKey: "desired_outcomes", label: t("label_desired_outcomes"), hint: t("hint_desired_outcomes") },
+      { fieldKey: "who_to_attract_on_linkedin", label: t("label_linkedin_attraction"), hint: t("hint_linkedin_attraction") },
+    ],
+    linkedin_content_strategy: [
+      { fieldKey: "main_content_goal", label: t("label_main_content_goal"), hint: t("hint_main_content_goal") },
+      { fieldKey: "content_positioning", label: t("label_content_positioning"), hint: t("hint_content_positioning") },
+      { fieldKey: "topics_to_emphasize", label: t("label_topics_to_emphasize"), hint: t("hint_topics_to_emphasize") },
+      { fieldKey: "topics_to_avoid", label: t("label_topics_to_avoid"), hint: t("hint_topics_to_avoid") },
+    ],
+    evidence_and_proof_assets: [
+      { fieldKey: "narrative_proof", label: t("label_narrative_proof"), hint: t("hint_narrative_proof") },
+      { fieldKey: "metrics_proof_points", label: t("label_metrics"), hint: t("hint_metrics") },
+      { fieldKey: "supporting_assets", label: t("label_supporting_assets"), hint: t("hint_supporting_assets") },
+      { fieldKey: "missing_proof_areas", label: t("label_missing_proof_areas"), hint: t("hint_missing_proof_areas") },
+    ],
+    generation_plan: [
+      { fieldKey: "planned_first_topic", label: t("label_first_topic"), hint: t("hint_first_topic") },
+      { fieldKey: "planned_format", label: t("label_planned_format"), hint: t("hint_planned_format") },
+      { fieldKey: "proof_plan", label: t("label_proof_plan"), hint: t("hint_proof_plan") },
+    ],
+  };
+}
 
 function getSectionDataForReview(
   preview: Record<string, unknown> | null,
@@ -270,25 +312,25 @@ function SectionStatusIcon({
 
 // ─── Verification Badge ───────────────────────────────────────────────────────
 
-function VerificationBadge({ indicator }: { indicator: VerificationIndicator }) {
+function VerificationBadge({ indicator, t }: { indicator: VerificationIndicator; t: (key: string, params?: Record<string, string>) => string }) {
   const map: Record<string, { bg: string; text: string; dot: string; label: string }> = {
     confirmed_by_user: {
       bg: "#EAF5F2",
       text: "#0D7B64",
       dot: "#0D7B64",
-      label: "Confirmed",
+      label: t("badge_confirmed"),
     },
     inferred_from_conversation: {
       bg: "#FDF3DC",
       text: "#8a6200",
       dot: "#d4a017",
-      label: "Inferred",
+      label: t("badge_inferred"),
     },
     needs_confirmation: {
       bg: "#FDECEA",
       text: "#9b2c2c",
       dot: "#e53e3e",
-      label: "Needs confirmation",
+      label: t("badge_needs_confirmation"),
     },
   };
   const s = map[indicator.state] ?? map.needs_confirmation;
@@ -332,193 +374,195 @@ interface SectionConfig {
   renderDetails: (data: unknown) => React.ReactNode;
 }
 
-const SECTION_CONFIGS: SectionConfig[] = [
-  {
-    key: "company_understanding",
-    number: 1,
-    title: "Company Understanding",
-    getSummary: (d: unknown) => {
-      const data = d as Record<string, string>;
-      return data?.company_summary || data?.main_offering || "—";
+function getSectionConfigs(t: (key: string, params?: Record<string, string>) => string): SectionConfig[] {
+  return [
+    {
+      key: "company_understanding",
+      number: 1,
+      title: t("section_company_understanding"),
+      getSummary: (d: unknown) => {
+        const data = d as Record<string, string>;
+        return data?.company_summary || data?.main_offering || "—";
+      },
+      renderDetails: (d: unknown) => {
+        const data = d as Record<string, string>;
+        return (
+          <>
+            {data.company_summary && <Row label={t("label_summary")} value={data.company_summary} />}
+            {data.short_brand_story && <Row label={t("label_brand_story")} value={data.short_brand_story} />}
+            {data.main_offering && <Row label={t("label_main_offering")} value={data.main_offering} />}
+            {data.problem_solved && <Row label={t("label_problem_solved")} value={data.problem_solved} />}
+            {data.differentiator && <Row label={t("label_differentiator")} value={data.differentiator} />}
+          </>
+        );
+      },
     },
-    renderDetails: (d: unknown) => {
-      const data = d as Record<string, string>;
-      return (
-        <>
-          {data.company_summary && <Row label="Summary" value={data.company_summary} />}
-          {data.short_brand_story && <Row label="Brand story" value={data.short_brand_story} />}
-          {data.main_offering && <Row label="Main offering" value={data.main_offering} />}
-          {data.problem_solved && <Row label="Problem solved" value={data.problem_solved} />}
-          {data.differentiator && <Row label="Differentiator" value={data.differentiator} />}
-        </>
-      );
+    {
+      key: "audience_understanding",
+      number: 2,
+      title: t("section_audience_understanding"),
+      getSummary: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (data?.primary_audience as string) || "—";
+      },
+      renderDetails: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (
+          <>
+            {data.primary_audience && <Row label={t("label_primary_audience")} value={data.primary_audience as string} />}
+            {(data.core_problems as string[])?.length > 0 && (
+              <Row label={t("label_core_problems")} value={(data.core_problems as string[]).join(", ")} />
+            )}
+            {(data.desired_outcomes as string[])?.length > 0 && (
+              <Row label={t("label_desired_outcomes")} value={(data.desired_outcomes as string[]).join(", ")} />
+            )}
+            {data.who_to_attract_on_linkedin && (
+              <Row label={t("label_linkedin_attraction")} value={data.who_to_attract_on_linkedin as string} />
+            )}
+          </>
+        );
+      },
     },
-  },
-  {
-    key: "audience_understanding",
-    number: 2,
-    title: "Audience Understanding",
-    getSummary: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (data?.primary_audience as string) || "—";
+    {
+      key: "linkedin_content_strategy",
+      number: 3,
+      title: t("section_linkedin_content_strategy"),
+      getSummary: (d: unknown) => {
+        const data = d as Record<string, string>;
+        return data?.main_content_goal || data?.content_positioning || "—";
+      },
+      renderDetails: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (
+          <>
+            {data.main_content_goal && <Row label={t("label_main_goal")} value={data.main_content_goal as string} />}
+            {data.content_positioning && <Row label={t("label_positioning")} value={data.content_positioning as string} />}
+            {(data.topics_to_emphasize as string[])?.length > 0 && (
+              <Row label={t("label_topics")} value={(data.topics_to_emphasize as string[]).join(", ")} />
+            )}
+            {(data.topics_to_avoid as string[])?.length > 0 && (
+              <Row label={t("label_avoid")} value={(data.topics_to_avoid as string[]).join(", ")} />
+            )}
+          </>
+        );
+      },
     },
-    renderDetails: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (
-        <>
-          {data.primary_audience && <Row label="Primary audience" value={data.primary_audience as string} />}
-          {(data.core_problems as string[])?.length > 0 && (
-            <Row label="Core problems" value={(data.core_problems as string[]).join(", ")} />
-          )}
-          {(data.desired_outcomes as string[])?.length > 0 && (
-            <Row label="Desired outcomes" value={(data.desired_outcomes as string[]).join(", ")} />
-          )}
-          {data.who_to_attract_on_linkedin && (
-            <Row label="LinkedIn attraction" value={data.who_to_attract_on_linkedin as string} />
-          )}
-        </>
-      );
+    {
+      key: "evidence_and_proof_assets",
+      number: 4,
+      title: t("section_evidence_and_proof_assets"),
+      getSummary: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (
+          (data?.evidence_confidence_level as string) ||
+          (data?.narrative_proof as string[])?.[0] ||
+          "—"
+        );
+      },
+      renderDetails: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (
+          <>
+            {(data.narrative_proof as string[])?.length > 0 && (
+              <Row label={t("label_narrative_proof")} value={(data.narrative_proof as string[]).join(", ")} />
+            )}
+            {(data.metrics_proof_points as string[])?.length > 0 && (
+              <Row label={t("label_metrics")} value={(data.metrics_proof_points as string[]).join(", ")} />
+            )}
+            {(data.supporting_assets as string[])?.length > 0 && (
+              <Row label={t("label_supporting_assets")} value={(data.supporting_assets as string[]).join(", ")} />
+            )}
+            {data.evidence_confidence_level && (
+              <Row label={t("label_confidence")} value={data.evidence_confidence_level as string} />
+            )}
+            {(data.missing_proof_areas as string[])?.length > 0 && (
+              <Row label={t("label_missing")} value={(data.missing_proof_areas as string[]).join(", ")} />
+            )}
+          </>
+        );
+      },
     },
-  },
-  {
-    key: "linkedin_content_strategy",
-    number: 3,
-    title: "LinkedIn Content Strategy",
-    getSummary: (d: unknown) => {
-      const data = d as Record<string, string>;
-      return data?.main_content_goal || data?.content_positioning || "—";
-    },
-    renderDetails: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (
-        <>
-          {data.main_content_goal && <Row label="Main goal" value={data.main_content_goal as string} />}
-          {data.content_positioning && <Row label="Positioning" value={data.content_positioning as string} />}
-          {(data.topics_to_emphasize as string[])?.length > 0 && (
-            <Row label="Topics" value={(data.topics_to_emphasize as string[]).join(", ")} />
-          )}
-          {(data.topics_to_avoid as string[])?.length > 0 && (
-            <Row label="Avoid" value={(data.topics_to_avoid as string[]).join(", ")} />
-          )}
-        </>
-      );
-    },
-  },
-  {
-    key: "evidence_and_proof_assets",
-    number: 4,
-    title: "Evidence & Proof Assets",
-    getSummary: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (
-        (data?.evidence_confidence_level as string) ||
-        (data?.narrative_proof as string[])?.[0] ||
-        "—"
-      );
-    },
-    renderDetails: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (
-        <>
-          {(data.narrative_proof as string[])?.length > 0 && (
-            <Row label="Narrative proof" value={(data.narrative_proof as string[]).join(", ")} />
-          )}
-          {(data.metrics_proof_points as string[])?.length > 0 && (
-            <Row label="Metrics" value={(data.metrics_proof_points as string[]).join(", ")} />
-          )}
-          {(data.supporting_assets as string[])?.length > 0 && (
-            <Row label="Assets" value={(data.supporting_assets as string[]).join(", ")} />
-          )}
-          {data.evidence_confidence_level && (
-            <Row label="Confidence" value={data.evidence_confidence_level as string} />
-          )}
-          {(data.missing_proof_areas as string[])?.length > 0 && (
-            <Row label="Missing" value={(data.missing_proof_areas as string[]).join(", ")} />
-          )}
-        </>
-      );
-    },
-  },
-  {
-    key: "ai_suggested_content_directions",
-    number: 5,
-    title: "AI Suggested Directions",
-    getSummary: (d: unknown) => {
-      const arr = d as Array<{ topic: string }>;
-      return Array.isArray(arr) && arr[0] ? arr[0].topic : "—";
-    },
-    renderDetails: (d: unknown) => {
-      const dirs = (Array.isArray(d) ? d : []) as Array<{
-        topic: string;
-        format: string;
-        angle: string;
-        why_it_fits: string;
-      }>;
-      return (
-        <>
-          {dirs.map((dir, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: i < dirs.length - 1 ? 10 : 0,
-                paddingBottom: i < dirs.length - 1 ? 10 : 0,
-                borderBottom:
-                  i < dirs.length - 1 ? "1px solid var(--color-line)" : "none",
-              }}
-            >
-              <div style={{ fontWeight: 500, fontSize: 13 }}>
-                Direction {i + 1}: {dir.topic}
-              </div>
-              <div style={{ color: "var(--color-muted)", fontSize: 12, marginTop: 2 }}>
-                Format: {dir.format} · Angle: {dir.angle}
-              </div>
-              {dir.why_it_fits && (
-                <div
-                  style={{
-                    color: "var(--color-muted)",
-                    fontStyle: "italic",
-                    fontSize: 12,
-                    marginTop: 2,
-                  }}
-                >
-                  {dir.why_it_fits}
+    {
+      key: "ai_suggested_content_directions",
+      number: 5,
+      title: t("section_ai_suggested_content_directions"),
+      getSummary: (d: unknown) => {
+        const arr = d as Array<{ topic: string }>;
+        return Array.isArray(arr) && arr[0] ? arr[0].topic : "—";
+      },
+      renderDetails: (d: unknown) => {
+        const dirs = (Array.isArray(d) ? d : []) as Array<{
+          topic: string;
+          format: string;
+          angle: string;
+          why_it_fits: string;
+        }>;
+        return (
+          <>
+            {dirs.map((dir, i) => (
+              <div
+                key={i}
+                style={{
+                  marginBottom: i < dirs.length - 1 ? 10 : 0,
+                  paddingBottom: i < dirs.length - 1 ? 10 : 0,
+                  borderBottom:
+                    i < dirs.length - 1 ? "1px solid var(--color-line)" : "none",
+                }}
+              >
+                <div style={{ fontWeight: 500, fontSize: 13 }}>
+                  {t("label_direction")} {i + 1}: {dir.topic}
                 </div>
-              )}
-            </div>
-          ))}
-        </>
-      );
+                <div style={{ color: "var(--color-muted)", fontSize: 12, marginTop: 2 }}>
+                  {t("label_format")}: {dir.format} · {t("label_angle")}: {dir.angle}
+                </div>
+                {dir.why_it_fits && (
+                  <div
+                    style={{
+                      color: "var(--color-muted)",
+                      fontStyle: "italic",
+                      fontSize: 12,
+                      marginTop: 2,
+                    }}
+                  >
+                    {dir.why_it_fits}
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        );
+      },
     },
-  },
-  {
-    key: "generation_plan",
-    number: 6,
-    title: "Generation Plan",
-    getSummary: (d: unknown) => {
-      const data = d as Record<string, string>;
-      return data?.planned_first_topic || data?.planned_format || "—";
+    {
+      key: "generation_plan",
+      number: 6,
+      title: t("section_generation_plan"),
+      getSummary: (d: unknown) => {
+        const data = d as Record<string, string>;
+        return data?.planned_first_topic || data?.planned_format || "—";
+      },
+      renderDetails: (d: unknown) => {
+        const data = d as Record<string, unknown>;
+        return (
+          <>
+            {data.planned_first_topic && (
+              <Row label={t("label_first_topic")} value={data.planned_first_topic as string} />
+            )}
+            {data.planned_format && <Row label={t("label_planned_format")} value={data.planned_format as string} />}
+            {(data.intended_structure as string[])?.length > 0 && (
+              <Row
+                label={t("label_structure")}
+                value={(data.intended_structure as string[]).join(" → ")}
+              />
+            )}
+            {data.audience_fit && <Row label={t("label_audience_fit")} value={data.audience_fit as string} />}
+            {data.proof_plan && <Row label={t("label_proof_plan")} value={data.proof_plan as string} />}
+          </>
+        );
+      },
     },
-    renderDetails: (d: unknown) => {
-      const data = d as Record<string, unknown>;
-      return (
-        <>
-          {data.planned_first_topic && (
-            <Row label="First topic" value={data.planned_first_topic as string} />
-          )}
-          {data.planned_format && <Row label="Format" value={data.planned_format as string} />}
-          {(data.intended_structure as string[])?.length > 0 && (
-            <Row
-              label="Structure"
-              value={(data.intended_structure as string[]).join(" → ")}
-            />
-          )}
-          {data.audience_fit && <Row label="Audience fit" value={data.audience_fit as string} />}
-          {data.proof_plan && <Row label="Proof plan" value={data.proof_plan as string} />}
-        </>
-      );
-    },
-  },
-];
+  ];
+}
 
 // ─── Accordion Section ────────────────────────────────────────────────────────
 
@@ -530,6 +574,7 @@ function AccordionSection({
   isConfirming,
   isExpanded,
   onToggle,
+  t,
 }: {
   config: SectionConfig;
   data: unknown;
@@ -538,6 +583,7 @@ function AccordionSection({
   isConfirming: boolean;
   isExpanded: boolean;
   onToggle: () => void;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
   const hasData = Array.isArray(data) ? data.length > 0 : !!data;
   const summary = hasData ? config.getSummary(data) : null;
@@ -619,7 +665,7 @@ function AccordionSection({
                   borderRadius: 999,
                 }}
               >
-                confirming
+                {t("status_confirming")}
               </span>
             )}
             {isActive && !isConfirming && (
@@ -633,7 +679,7 @@ function AccordionSection({
                   borderRadius: 999,
                 }}
               >
-                discussing
+                {t("status_discussing")}
               </span>
             )}
           </div>
@@ -694,7 +740,7 @@ function AccordionSection({
                   style={{ display: "flex", flexWrap: "wrap", marginTop: 10 }}
                 >
                   {verifications.map((v, i) => (
-                    <VerificationBadge key={i} indicator={v} />
+                    <VerificationBadge key={i} indicator={v} t={t} />
                   ))}
                 </div>
               )}
@@ -708,7 +754,7 @@ function AccordionSection({
                 fontStyle: "italic",
               }}
             >
-              This section will fill in as the conversation progresses.
+              {t("section_empty")}
             </p>
           )}
         </div>
@@ -723,10 +769,12 @@ function ContextWindowCompact({
   contextWindow,
   cumulativeTokens,
   turnCount,
+  t,
 }: {
   contextWindow: ContextWindowData | null;
   cumulativeTokens: CumulativeTokenData | null;
   turnCount: number;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
   const baseStyle: React.CSSProperties = {
     padding: "10px 16px",
@@ -753,7 +801,7 @@ function ContextWindowCompact({
           <path d="M12 8v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           <circle cx="12" cy="16" r="0.5" fill="currentColor" stroke="currentColor" />
         </svg>
-        Context usage appears after the first message.
+        {t("ctx_pending")}
       </div>
     );
   }
@@ -841,14 +889,14 @@ function ContextWindowCompact({
         <span style={{ fontWeight: 500, color: "var(--color-text)" }}>
           {fmtTokens(contextWindow.usedTokens)}
         </span>
-        /{fmtTokens(contextWindow.maxContextTokens)} tokens · Turn #{turnCount}
+        /{fmtTokens(contextWindow.maxContextTokens)} {t("ctx_tokens")} · {t("ctx_turn")} #{turnCount}
         {cumulativeTokens && (
           <>
             {" · "}
             <span style={{ fontWeight: 500, color: "var(--color-text)" }}>
               {fmtTokens(cumulativeTokens.totalTokens)}
             </span>{" "}
-            tok total
+            {t("ctx_total")}
           </>
         )}
       </div>
@@ -877,7 +925,7 @@ function ContextWindowCompact({
         </span>
         <span style={{ fontSize: 10, color: "var(--color-muted)" }}>
           ${contextWindow.estimatedCostUsd.toFixed(4)} · $
-          {totalCost.toFixed(4)} session
+          {totalCost.toFixed(4)} {t("ctx_session")}
         </span>
       </div>
     </div>
@@ -898,6 +946,7 @@ function SectionReviewPanel({
   onSuggestChange,
   onSaveChange,
   onCancelEdit,
+  t,
 }: {
   sectionName: string;
   item: ReviewItemConfig;
@@ -912,6 +961,7 @@ function SectionReviewPanel({
   onSuggestChange: () => void;
   onSaveChange: () => void;
   onCancelEdit: () => void;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
   return (
     <div
@@ -942,7 +992,7 @@ function SectionReviewPanel({
             letterSpacing: "0.04em",
           }}
         >
-          Section review
+          {t("review_title")}
         </span>
         <span
           style={{
@@ -980,7 +1030,7 @@ function SectionReviewPanel({
           whiteSpace: "pre-wrap",
         }}
       >
-        {displayValue || "No content yet."}
+        {displayValue || t("review_no_content")}
       </div>
 
       {isEditing ? (
@@ -989,7 +1039,7 @@ function SectionReviewPanel({
             rows={3}
             value={draftValue}
             onChange={(e) => onDraftChange(e.target.value)}
-            placeholder={`Suggest better wording for "${item.label}"`}
+            placeholder={t("edit_placeholder", { label: item.label })}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button
@@ -1004,7 +1054,7 @@ function SectionReviewPanel({
               }}
               type="button"
             >
-              {submitting ? "Saving..." : "Save change"}
+              {submitting ? t("review_saving") : t("btn_save_change")}
             </button>
             <button
               onClick={onCancelEdit}
@@ -1018,7 +1068,7 @@ function SectionReviewPanel({
               }}
               type="button"
             >
-              Cancel
+              {t("btn_cancel")}
             </button>
           </div>
         </div>
@@ -1037,7 +1087,7 @@ function SectionReviewPanel({
               }}
               type="button"
             >
-              {submitting ? "Saving..." : "Confirm"}
+              {submitting ? t("review_saving") : t("btn_confirm")}
             </button>
             <button
               onClick={onSuggestChange}
@@ -1051,11 +1101,11 @@ function SectionReviewPanel({
               }}
               type="button"
             >
-              Suggest change
+              {t("btn_suggest_change")}
             </button>
           </div>
           <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-muted)" }}>
-            Suggest change saves your text directly (no AI rewrite in this step).
+            {t("review_suggest_hint")}
           </div>
         </div>
       )}
@@ -1066,20 +1116,20 @@ function SectionReviewPanel({
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export function InterviewApp() {
+  const { lang, setLang, t, getSectionName } = useLanguage();
+  const REVIEW_ITEMS = getReviewItems(t);
+  const SECTION_CONFIGS = getSectionConfigs(t);
+
   const [sessionId, setSessionId] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content: "Could you briefly describe what your company does?",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [completionState, setCompletionState] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
-  const [currentSectionName, setCurrentSectionName] = useState("Company Understanding");
+  const [currentSectionName, setCurrentSectionName] = useState("");
+  const [activeSectionId, setActiveSectionId] = useState("company_understanding");
   const [contextWindow, setContextWindow] = useState<ContextWindowData | null>(null);
   const [cumulativeTokens, setCumulativeTokens] = useState<CumulativeTokenData | null>(null);
   const [turnCount, setTurnCount] = useState(0);
@@ -1091,129 +1141,182 @@ export function InterviewApp() {
   const [structuredChoice, setStructuredChoice] = useState<StructuredChoicePayload | null>(null);
   const [structuredOtherDraft, setStructuredOtherDraft] = useState("");
   const [taskType, setTaskType] = useState<string | null>(null);
-  const [sessionList, setSessionList] = useState<SessionEntry[]>([]);
+  const [superV1ConversationId, setSuperV1ConversationId] = useState<string | null>(null);
+  const [conversationList, setConversationList] = useState<SuperV1ConversationEntry[]>([]);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Session ID
+  // Set initial greeting based on language
   useEffect(() => {
-    const key = "interviewer_session_id";
-    const generate = () =>
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `session_${Date.now()}`;
+    if (messages.length === 0) {
+      setMessages([{ role: "assistant", content: t("initial_greeting") }]);
+    }
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Set initial section name based on language
+  useEffect(() => {
+    if (!currentSectionName) {
+      setCurrentSectionName(t("section_company_understanding"));
+    }
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function createSuperV1Conversation(): Promise<string> {
+    const response = await fetch("/api/conversations/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error((data.error as string) ?? "Failed to create conversation");
+    }
+    const id = String(data.conversationId ?? "");
+    if (!id) throw new Error("Missing conversation ID");
+    return id;
+  }
+
+  function applySuperV1State(state: SuperV1StatePayload, reason?: string) {
+    setActiveSectionId(state.activeSectionId);
+    setCurrentSectionName(getSectionName(state.activeSectionId));
+    const nextIndex = state.sections.findIndex(
+      (section) => section.section_id === state.activeSectionId,
+    );
+    if (nextIndex >= 0) {
+      setCurrentSectionIndex(nextIndex);
+    }
+    setWorkflowState({
+      phase: "interviewing",
+      active_section_id: state.activeSectionId,
+      required_open_slot_ids:
+        state.sections.find((section) => section.section_id === state.activeSectionId)
+          ?.open_required_question_ids ?? [],
+      transition_allowed: false,
+      last_transition_reason: reason ?? null,
+      pending_interaction_module: "none",
+      pending_review_section_id: null,
+    });
+    setCompletionState({
+      completion_level: state.status,
+      completion_score: Math.round(state.completion.ratio * 100),
+    });
+    setPreview(buildPreviewFromSuperV1State(state));
+  }
+
+  async function loadSuperV1Conversation(conversationId: string) {
+    const [stateResponse, turnsResponse] = await Promise.all([
+      fetch(`/api/conversations/${conversationId}/state`),
+      fetch(`/api/conversations/${conversationId}/turns`),
+    ]);
+    const statePayload = (await stateResponse.json()) as { state?: SuperV1StatePayload; error?: string };
+    const turnsPayload = (await turnsResponse.json()) as { turns?: SuperV1TurnRecord[]; error?: string };
+
+    if (!stateResponse.ok) {
+      throw new Error(statePayload.error ?? "Failed to load conversation state");
+    }
+    if (!turnsResponse.ok) {
+      throw new Error(turnsPayload.error ?? "Failed to load conversation turns");
+    }
+
+    const turns = turnsPayload.turns ?? [];
+    const mappedMessages: ChatMessage[] = turns
+      .filter((turn) => turn.role === "user" || turn.role === "assistant" || turn.role === "system")
+      .map((turn) => ({
+        role: turn.role === "user" ? "user" : "assistant",
+        content: turn.message_text,
+      }));
+
+    setMessages(mappedMessages.length > 0 ? mappedMessages : [{ role: "assistant", content: t("initial_greeting") }]);
+    setStructuredChoice(null);
+    setStructuredOtherDraft("");
+    setTaskType(null);
+    setContextWindow(null);
+    setCumulativeTokens(null);
+    setTurnCount(turns.length);
+    applySuperV1State(statePayload.state as SuperV1StatePayload);
+  }
+
+  async function fetchConversationList() {
+    setSessionLoading(true);
     try {
-      const stored = window.localStorage.getItem(key);
-      if (stored) {
-        setSessionId(stored);
+      const response = await fetch("/api/conversations");
+      const payload = (await response.json()) as {
+        conversations?: SuperV1ConversationEntry[];
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to load sessions");
+      }
+      setConversationList(payload.conversations ?? []);
+    } catch {
+      setConversationList([]);
+    } finally {
+      setSessionLoading(false);
+    }
+  }
+
+  // Session / conversation ID
+  useEffect(() => {
+    const key = "superv1_conversation_id";
+    const init = async () => {
+      try {
+        const stored = window.localStorage.getItem(key);
+        if (stored) {
+          setSessionId(stored);
+          setSuperV1ConversationId(stored);
+          try {
+            await loadSuperV1Conversation(stored);
+            return;
+          } catch {
+            try {
+              window.localStorage.removeItem(key);
+            } catch {
+              // ignore localStorage errors
+            }
+          }
+        }
+      } catch {
+        // ignore localStorage errors
+      }
+      try {
+        const newId = await createSuperV1Conversation();
+        try {
+          window.localStorage.setItem(key, newId);
+        } catch {
+          // ignore localStorage errors
+        }
+        setSessionId(newId);
+        setSuperV1ConversationId(newId);
+        await fetchConversationList();
+      } catch {
+        setError("Failed to initialize SuperV1 conversation");
         return;
       }
-      const id = generate();
-      window.localStorage.setItem(key, id);
-      setSessionId(id);
-    } catch {
-      setSessionId(generate());
-    }
-  }, []);
+    };
+
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-expand the section currently being discussed
   useEffect(() => {
-    const visibleSectionIndexMap: Record<string, number> = {
-      "Company Understanding": 0,
-      "Audience Understanding": 1,
-      "LinkedIn Content Strategy": 2,
-      "Evidence & Proof Assets": 3,
-      "Generation Plan": 5,
+    const sectionIdIndexMap: Record<string, number> = {
+      company_understanding: 0,
+      audience_understanding: 1,
+      linkedin_content_strategy: 2,
+      evidence_and_proof_assets: 3,
+      generation_plan: 5,
     };
-    const sectionName = confirmingSectionId
-      ? SECTION_NAME_BY_ID[confirmingSectionId]
-      : currentSectionName;
-    const nextIndex = visibleSectionIndexMap[sectionName];
+    const targetId = confirmingSectionId ?? activeSectionId;
+    const nextIndex = sectionIdIndexMap[targetId];
     if (typeof nextIndex === "number") {
       setExpandedSection(nextIndex);
     }
-  }, [currentSectionIndex, currentSectionName, confirmingSectionId]);
+  }, [currentSectionIndex, activeSectionId, confirmingSectionId]);
 
   // Auto-scroll chat to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
-
-  function maybeOpenSectionReview(
-    modulePayload: InteractionModulePayload | null,
-    _updatedPreview: Record<string, unknown> | null,
-    workflow?: WorkflowStatePayload | null,
-  ) {
-    const fromInteraction = modulePayload?.type === "confirm_section"
-      ? (modulePayload.payload.section_id as string | undefined)
-      : null;
-    const pending = fromInteraction ?? workflow?.pending_review_section_id;
-    const isReviewablePending = !!pending && pending in REVIEW_ITEMS;
-
-    if (modulePayload?.type === "confirm_section" && isReviewablePending) {
-      const sectionId = pending as ReviewSectionId;
-      setStructuredChoice(null);
-      setStructuredOtherDraft("");
-      setConfirmingSectionId(sectionId);
-      if (!reviewState || reviewState.sectionId !== sectionId) {
-        setReviewState({
-          sectionId,
-          stepIndex: 0,
-          isEditing: false,
-          draftValue: "",
-          submitting: false,
-        });
-      }
-      return;
-    }
-
-    if (modulePayload?.type !== "confirm_section" && workflow?.phase) {
-      if (workflow.phase === "confirming_section" && isReviewablePending) {
-        const sectionId = pending as ReviewSectionId;
-        setConfirmingSectionId(sectionId);
-        if (!reviewState || reviewState.sectionId !== sectionId) {
-          setReviewState({
-            sectionId,
-            stepIndex: 0,
-            isEditing: false,
-            draftValue: "",
-            submitting: false,
-          });
-        }
-        return;
-      }
-      if (workflow.phase !== "confirming_section") {
-        setConfirmingSectionId(null);
-        if (reviewState) {
-          setReviewState(null);
-        }
-      }
-    }
-
-    if (modulePayload?.type === "select_help_option") {
-      const payload = modulePayload.payload;
-      setStructuredChoice({
-        slot_id: String(payload.slot_id ?? ""),
-        prompt: String(payload.prompt ?? ""),
-        options: Array.isArray(payload.options)
-          ? (payload.options as Array<{ id: string; label: string; value: string }>)
-          : [],
-        allow_other: Boolean(payload.allow_other ?? true),
-        other_placeholder:
-          typeof payload.other_placeholder === "string" ? payload.other_placeholder : undefined,
-      });
-      setConfirmingSectionId(null);
-      if (reviewState) setReviewState(null);
-      return;
-    }
-
-    if (modulePayload?.type === "none") {
-      setStructuredChoice(null);
-      setStructuredOtherDraft("");
-    }
-  }
 
   async function sendMessage(event?: FormEvent, overrideInput?: string) {
     event?.preventDefault();
@@ -1226,56 +1329,35 @@ export function InterviewApp() {
     setInput("");
 
     try {
-      const response = await fetch("/api/interview/message", {
+      let conversationId = superV1ConversationId;
+      if (!conversationId) {
+        conversationId = await createSuperV1Conversation();
+        setSuperV1ConversationId(conversationId);
+        setSessionId(conversationId);
+        try {
+          window.localStorage.setItem("superv1_conversation_id", conversationId);
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+      const response = await fetch("/api/turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, user_message: userText }),
+        body: JSON.stringify({
+          conversationId,
+          userMessage: userText,
+          language: lang,
+        }),
       });
-      const data = await response.json() as Record<string, unknown>;
-      if (!response.ok) throw new Error((data.error as string) ?? "Request failed");
+      const data = (await response.json()) as SuperV1TurnPayload & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Request failed");
 
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.assistant_message as string },
-      ]);
-      const updatedPreview = data.updated_preview as Record<string, unknown> | null;
-      const receivedWorkflow = (data.workflow_state as WorkflowStatePayload | undefined) ?? null;
-      const receivedInteractionModule =
-        (data.interaction_module as InteractionModulePayload | undefined) ?? null;
-      setWorkflowState(receivedWorkflow);
-      if (!receivedInteractionModule || receivedInteractionModule.type !== "select_help_option") {
-        setStructuredChoice(null);
-        setStructuredOtherDraft("");
-      }
-      setPreview(updatedPreview);
-      if (data.completion_state) {
-        setCompletionState(data.completion_state as Record<string, unknown>);
-      }
-      if (typeof data.current_section_index === "number") {
-        setCurrentSectionIndex(data.current_section_index);
-      }
-      if (typeof data.current_section_name === "string") {
-        setCurrentSectionName(data.current_section_name);
-      }
-      const sectionNameByWorkflow: Record<string, string> = {
-        company_understanding: "Company Understanding",
-        audience_understanding: "Audience Understanding",
-        linkedin_content_strategy: "LinkedIn Content Strategy",
-        evidence_and_proof_assets: "Evidence & Proof Assets",
-        content_preferences_and_boundaries: "Content Preferences & Boundaries",
-        generation_plan: "Generation Plan",
-      };
-      if (receivedWorkflow?.active_section_id) {
-        setCurrentSectionName(
-          sectionNameByWorkflow[receivedWorkflow.active_section_id] ??
-            currentSectionName,
-        );
-      }
-      if (data.context_window) setContextWindow(data.context_window as ContextWindowData);
-      if (data.cumulative_tokens) setCumulativeTokens(data.cumulative_tokens as CumulativeTokenData);
-      if (typeof data.planner_task_type === "string") setTaskType(data.planner_task_type);
+      setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      setStructuredChoice(null);
+      setStructuredOtherDraft("");
+      setTaskType(data.intent.intent);
+      applySuperV1State(data.state, data.intent.reason);
       setTurnCount((prev) => prev + 1);
-      maybeOpenSectionReview(receivedInteractionModule, updatedPreview, receivedWorkflow);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -1290,36 +1372,30 @@ export function InterviewApp() {
     }
   }
 
-  async function fetchSessions() {
-    setSessionLoading(true);
+  async function handleNewSession() {
+    let newConversationId: string | null = null;
     try {
-      const res = await fetch("/api/interview/sessions");
-      const data = (await res.json()) as { sessions?: SessionEntry[] };
-      setSessionList(data.sessions ?? []);
+      const newId = await createSuperV1Conversation();
+      newConversationId = newId;
+      try {
+        window.localStorage.setItem("superv1_conversation_id", newId);
+      } catch {
+        // ignore localStorage errors
+      }
+      setSessionId(newId);
+      setSuperV1ConversationId(newId);
     } catch {
-      setSessionList([]);
-    } finally {
-      setSessionLoading(false);
+      setError("Failed to start a new SuperV1 conversation");
     }
-  }
 
-  function handleNewSession() {
-    const key = "interviewer_session_id";
-    const newId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `session_${Date.now()}`;
-    try {
-      window.localStorage.setItem(key, newId);
-    } catch { /* noop */ }
-    setSessionId(newId);
     setMessages([
-      { role: "assistant", content: "Could you briefly describe what your company does?" },
+      { role: "assistant", content: t("initial_greeting") },
     ]);
     setPreview(null);
     setCompletionState(null);
     setCurrentSectionIndex(0);
-    setCurrentSectionName("Company Understanding");
+    setActiveSectionId("company_understanding");
+    setCurrentSectionName(t("section_company_understanding"));
     setContextWindow(null);
     setCumulativeTokens(null);
     setTurnCount(0);
@@ -1332,47 +1408,60 @@ export function InterviewApp() {
     setStructuredOtherDraft("");
     setTaskType(null);
     setError(null);
-    fetchSessions();
-  }
-
-  async function handleDeleteSession(targetId: string) {
-    if (!confirm(`Delete session ${targetId.slice(0, 8)}…? This cannot be undone.`)) return;
-    try {
-      await fetch("/api/interview/sessions/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: targetId }),
-      });
-      if (targetId === sessionId) {
-        handleNewSession();
-      } else {
-        fetchSessions();
-      }
-    } catch {
-      setError("Failed to delete session");
+    if (showSessionPanel) {
+      await fetchConversationList();
+    }
+    if (newConversationId) {
+      setSessionId(newConversationId);
+      setSuperV1ConversationId(newConversationId);
     }
   }
 
-  function handleSwitchSession(targetId: string) {
-    const key = "interviewer_session_id";
+  async function handleSwitchSession(targetId: string) {
     try {
-      window.localStorage.setItem(key, targetId);
-    } catch { /* noop */ }
-    setSessionId(targetId);
-    setMessages([
-      { role: "assistant", content: "Resuming your session..." },
-    ]);
-    setPreview(null);
-    setCompletionState(null);
-    setReviewState(null);
-    setReviewedSections({});
-    setConfirmingSectionId(null);
-    setWorkflowState(null);
-    setStructuredChoice(null);
-    setStructuredOtherDraft("");
-    setTaskType(null);
-    setError(null);
-    setShowSessionPanel(false);
+      setLoading(true);
+      setError(null);
+      try {
+        window.localStorage.setItem("superv1_conversation_id", targetId);
+      } catch {
+        // ignore localStorage errors
+      }
+      setSessionId(targetId);
+      setSuperV1ConversationId(targetId);
+      await loadSuperV1Conversation(targetId);
+      setShowSessionPanel(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to switch session");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteSession(targetId: string) {
+    if (!confirm(t("delete_confirm", { id: targetId.slice(0, 8) }))) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch("/api/conversations/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: targetId }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to delete session");
+      }
+
+      if (targetId === sessionId) {
+        await handleNewSession();
+      } else {
+        await fetchConversationList();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete session");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const sections = preview?.sections as Record<string, unknown> | undefined;
@@ -1404,10 +1493,7 @@ export function InterviewApp() {
   };
   const levelStyle = levelBadge[level] ?? levelBadge.incomplete;
   const scoreColor = score > 70 ? "#0D7B64" : score > 40 ? "#d4a017" : "#C2BFB6";
-  const activePreviewKey = getPreviewFocusKey(
-    currentSectionName,
-    confirmingSectionId,
-  );
+  const activePreviewKey = confirmingSectionId || activeSectionId;
   const activeReviewItems = reviewState ? REVIEW_ITEMS[reviewState.sectionId] : [];
   const activeReviewItem = reviewState ? activeReviewItems[reviewState.stepIndex] : null;
   const activeReviewData = reviewState
@@ -1463,17 +1549,10 @@ export function InterviewApp() {
       if (data.workflow_state) {
         const wf = data.workflow_state as WorkflowStatePayload;
         setWorkflowState(wf);
-        const sectionNameByWorkflow: Record<string, string> = {
-          company_understanding: "Company Understanding",
-          audience_understanding: "Audience Understanding",
-          linkedin_content_strategy: "LinkedIn Content Strategy",
-          evidence_and_proof_assets: "Evidence & Proof Assets",
-          content_preferences_and_boundaries: "Content Preferences & Boundaries",
-          generation_plan: "Generation Plan",
-        };
         if (wf.active_section_id) {
+          setActiveSectionId(wf.active_section_id);
           setCurrentSectionName(
-            sectionNameByWorkflow[wf.active_section_id] ?? currentSectionName,
+            getSectionName(wf.active_section_id),
           );
         }
       }
@@ -1484,8 +1563,8 @@ export function InterviewApp() {
       setConfirmingSectionId(null);
       setReviewState(null);
 
-      const sectionLabel = SECTION_NAME_BY_ID[reviewState.sectionId] ?? "this section";
-      const autoReply = `Looks good — I'm happy with ${sectionLabel}. Let's continue.`;
+      const sectionLabel = getSectionName(reviewState.sectionId);
+      const autoReply = t("review_auto_reply", { section: sectionLabel });
       sendMessage(undefined, autoReply);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown review error");
@@ -1602,13 +1681,31 @@ export function InterviewApp() {
               color: "var(--color-text)",
             }}
           >
-            AI Content Strategist
+            {t("app_title")}
           </span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button
+              onClick={() => setLang(lang === "en" ? "zh" : "en")}
+              style={{
+                background: "var(--color-chip)",
+                color: "var(--color-text)",
+                borderRadius: 999,
+                padding: "5px 14px",
+                fontSize: 12,
+                fontWeight: 600,
+                minWidth: 48,
+              }}
+              type="button"
+            >
+              {t("lang_toggle")}
+            </button>
+            <button
               onClick={() => {
-                setShowSessionPanel(!showSessionPanel);
-                if (!showSessionPanel) fetchSessions();
+                const next = !showSessionPanel;
+                setShowSessionPanel(next);
+                if (next) {
+                  fetchConversationList();
+                }
               }}
               style={{
                 background: "var(--color-chip)",
@@ -1620,7 +1717,7 @@ export function InterviewApp() {
               }}
               type="button"
             >
-              Sessions
+              {t("btn_sessions")}
             </button>
             <button
               onClick={handleNewSession}
@@ -1634,12 +1731,11 @@ export function InterviewApp() {
               }}
               type="button"
             >
-              + New Session
+              {t("btn_new_session")}
             </button>
           </div>
         </div>
 
-        {/* ── Session management panel ── */}
         {showSessionPanel && (
           <div
             style={{
@@ -1659,7 +1755,7 @@ export function InterviewApp() {
               }}
             >
               <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)" }}>
-                All Sessions
+                {t("sessions_title")}
               </span>
               <button
                 onClick={() => setShowSessionPanel(false)}
@@ -1676,17 +1772,16 @@ export function InterviewApp() {
               </button>
             </div>
             {sessionLoading ? (
-              <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "8px 0" }}>Loading...</div>
-            ) : sessionList.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "8px 0" }}>{t("sessions_loading")}</div>
+            ) : conversationList.length === 0 ? (
               <div style={{ fontSize: 12, color: "var(--color-muted)", padding: "8px 0" }}>
-                No sessions found. Click &quot;+ New Session&quot; to start one.
+                {t("sessions_empty")}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {sessionList.map((entry) => {
+                {conversationList.map((entry) => {
                   const isCurrent = entry.id === sessionId;
                   const dateStr = new Date(entry.updated_at || entry.created_at).toLocaleString();
-                  const scorePercent = Math.round((entry.completion_score ?? 0) * 100);
                   return (
                     <div
                       key={entry.id}
@@ -1715,12 +1810,12 @@ export function InterviewApp() {
                                 padding: "1px 6px",
                               }}
                             >
-                              active
+                              {t("session_active")}
                             </span>
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--color-muted)", marginTop: 2 }}>
-                          {dateStr} &middot; {entry.completion_level ?? "incomplete"} &middot; {scorePercent}%
+                          {dateStr} &middot; {entry.status} &middot; {getSectionName(entry.active_section_id)}
                         </div>
                       </div>
                       {!isCurrent && (
@@ -1737,7 +1832,7 @@ export function InterviewApp() {
                           }}
                           type="button"
                         >
-                          Switch
+                          {t("btn_switch")}
                         </button>
                       )}
                       <button
@@ -1753,7 +1848,7 @@ export function InterviewApp() {
                         }}
                         type="button"
                       >
-                        Delete
+                        {t("btn_delete")}
                       </button>
                     </div>
                   );
@@ -1805,7 +1900,7 @@ export function InterviewApp() {
                   color: "var(--color-text)",
                 }}
               >
-                Interview
+                {t("chat_title")}
               </h1>
               <span
                 style={{
@@ -1817,7 +1912,7 @@ export function InterviewApp() {
                   color: "var(--color-muted)",
                 }}
               >
-                AI Content Strategist
+                {t("chat_subtitle")}
               </span>
               <span
                 style={{
@@ -1838,7 +1933,7 @@ export function InterviewApp() {
                     display: "inline-block",
                   }}
                 />
-                Live
+                {t("chat_live")}
               </span>
             </div>
 
@@ -1877,7 +1972,7 @@ export function InterviewApp() {
                 }}
               >
                 {confirmingSectionId
-                  ? `Reviewing: ${SECTION_NAME_BY_ID[confirmingSectionId]}`
+                  ? t("status_reviewing", { section: getSectionName(confirmingSectionId) })
                   : currentSectionName}
               </span>
               {taskType && (
@@ -1903,10 +1998,10 @@ export function InterviewApp() {
                   }}
                 >
                   {taskType === "answer_question"
-                    ? "Answering"
+                    ? t("task_answering")
                     : taskType === "ask_for_help"
-                      ? "Helping"
-                      : "Exploring"}
+                      ? t("task_helping")
+                      : t("task_exploring")}
                 </span>
               )}
             </div>
@@ -1940,7 +2035,7 @@ export function InterviewApp() {
                         paddingLeft: 2,
                       }}
                     >
-                      AI Strategist
+                      {t("chat_sender")}
                     </div>
                   )}
                   <div
@@ -1984,7 +2079,7 @@ export function InterviewApp() {
                       paddingLeft: 2,
                     }}
                   >
-                    AI Strategist
+                    {t("chat_sender")}
                   </div>
                   <div
                     style={{
@@ -2027,7 +2122,8 @@ export function InterviewApp() {
             >
               {reviewState && activeReviewItem && (
                 <SectionReviewPanel
-                  sectionName={SECTION_NAME_BY_ID[reviewState.sectionId]}
+                  sectionName={getSectionName(reviewState.sectionId)}
+                  t={t}
                   item={activeReviewItem}
                   displayValue={activeReviewValue}
                   step={reviewState.stepIndex + 1}
@@ -2079,7 +2175,7 @@ export function InterviewApp() {
                   }}
                 >
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#8a6200", marginBottom: 8 }}>
-                    Quick selection
+                    {t("structured_title")}
                   </div>
                   <div style={{ fontSize: 13, color: "var(--color-text)", marginBottom: 10 }}>
                     {structuredChoice.prompt}
@@ -2124,7 +2220,7 @@ export function InterviewApp() {
                           height: 40,
                         }}
                       >
-                        Submit
+                        {t("btn_submit")}
                       </button>
                     </div>
                   )}
@@ -2136,7 +2232,7 @@ export function InterviewApp() {
               >
                 <textarea
                   rows={2}
-                  placeholder="Type your answer… (Enter to send, Shift+Enter for new line)"
+                  placeholder={t("input_placeholder")}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -2163,7 +2259,7 @@ export function InterviewApp() {
                     gap: 6,
                   }}
                 >
-                  Send
+                  {t("btn_send")}
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
                     <path
                       d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"
@@ -2224,7 +2320,7 @@ export function InterviewApp() {
                     color: "var(--color-text)",
                   }}
                 >
-                  Content Strategy Preview
+                  {t("preview_title")}
                 </h2>
                 <span
                   style={{
@@ -2279,7 +2375,7 @@ export function InterviewApp() {
                     flexShrink: 0,
                   }}
                 >
-                  {verCoverage}% verified
+                  {verCoverage}% {t("preview_verified")}
                 </span>
               </div>
               <div
@@ -2303,8 +2399,8 @@ export function InterviewApp() {
                 }}
               >
                 {confirmingSectionId
-                  ? `Confirming: ${SECTION_NAME_BY_ID[confirmingSectionId]}`
-                  : `Currently discussing: ${currentSectionName}`}
+                  ? t("status_confirming_section", { section: getSectionName(confirmingSectionId) })
+                  : t("status_discussing_section", { section: currentSectionName })}
               </div>
               {!confirmingSectionId && workflowBlockers.length > 0 && (
                 <div
@@ -2314,7 +2410,7 @@ export function InterviewApp() {
                     color: "#8a6200",
                   }}
                 >
-                  Still waiting on: {workflowBlockers.slice(0, 2).join(" · ")}
+                  {t("status_waiting", { items: workflowBlockers.slice(0, 2).join(" · ") })}
                 </div>
               )}
             </div>
@@ -2329,12 +2425,11 @@ export function InterviewApp() {
             >
               {SECTION_CONFIGS.map((config, idx) => {
                 const sectionData = sections?.[config.key];
-                const visualState = getSectionVisualState(
-                  config.key,
-                  currentSectionName,
-                  confirmingSectionId,
-                  workflowState?.phase === "structured_help_selection",
-                );
+                const isStructuredHelp = workflowState?.phase === "structured_help_selection";
+                const visualState = {
+                  isConfirming: confirmingSectionId === config.key,
+                  isActive: !confirmingSectionId && !isStructuredHelp && activeSectionId === config.key,
+                };
                 const verifications = Array.isArray(sectionData)
                   ? undefined
                   : (sectionData as Record<string, unknown>)
@@ -2352,6 +2447,7 @@ export function InterviewApp() {
                     onToggle={() =>
                       setExpandedSection(expandedSection === idx ? -1 : idx)
                     }
+                    t={t}
                   />
                 );
               })}
@@ -2362,6 +2458,7 @@ export function InterviewApp() {
               contextWindow={contextWindow}
               cumulativeTokens={cumulativeTokens}
               turnCount={turnCount}
+              t={t}
             />
           </div>
         </div>

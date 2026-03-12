@@ -1,0 +1,94 @@
+import { describe, expect, test } from "vitest";
+import { validateExtraction } from "@/server/superv1/services/extraction-validator";
+import { buildPlannerResult } from "@/server/superv1/services/checklist-state-service";
+import { SuperV1TemplateQuestion } from "@/server/superv1/types";
+
+const questions: SuperV1TemplateQuestion[] = [
+  {
+    id: "q1",
+    template_id: "t1",
+    section_id: "company_understanding",
+    question_id: "cp_what_does_company_do",
+    question_text: "What does the company do?",
+    question_description: null,
+    field_type: "text",
+    is_required: true,
+    display_order: 1,
+  },
+  {
+    id: "q2",
+    template_id: "t1",
+    section_id: "audience_understanding",
+    question_id: "ma_primary_audience",
+    question_text: "Who is the primary audience?",
+    question_description: null,
+    field_type: "text",
+    is_required: true,
+    display_order: 2,
+  },
+];
+
+describe("superv1 validator", () => {
+  test("accepts only allowed open question updates with confidence >= 0.75", () => {
+    const validated = validateExtraction({
+      extraction: {
+        filled_items: [
+          {
+            question_id: "cp_what_does_company_do",
+            value: "We provide search API tooling.",
+            confidence: 0.8,
+            evidence: "We provide search API tooling.",
+          },
+          {
+            question_id: "ma_primary_audience",
+            value: "Operations leaders",
+            confidence: 0.6,
+            evidence: "Ops leaders",
+          },
+        ],
+        ambiguous_items: [],
+        possible_items: [],
+      },
+      openQuestions: [questions[0]],
+      answers: [],
+    });
+
+    expect(validated.accepted_updates).toHaveLength(1);
+    expect(validated.accepted_updates[0].question_id).toBe("cp_what_does_company_do");
+    expect(validated.rejected_updates.some((entry) => entry.question_id === "ma_primary_audience")).toBe(true);
+  });
+});
+
+describe("superv1 planner", () => {
+  test("keeps active section on first unresolved required question and asks max one", () => {
+    const planner = buildPlannerResult(questions, [
+      {
+        id: "a1",
+        conversation_id: "c1",
+        question_id: "cp_what_does_company_do",
+        value_json: null,
+        status: "empty",
+        confidence: null,
+        evidence_text: null,
+        source_turn_id: null,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: "a2",
+        conversation_id: "c1",
+        question_id: "ma_primary_audience",
+        value_json: null,
+        status: "empty",
+        confidence: null,
+        evidence_text: null,
+        source_turn_id: null,
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    expect(planner.active_section_id).toBe("company_understanding");
+    expect(planner.next_question_id).toBe("cp_what_does_company_do");
+    expect(planner.ask_count).toBe(1);
+  });
+});
+

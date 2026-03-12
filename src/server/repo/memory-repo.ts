@@ -109,8 +109,9 @@ export class MemoryInterviewRepository implements InterviewRepository {
     this.store.states.set(record.session_id, record);
   }
 
-  async listMessages(sessionId: string): Promise<InterviewMessage[]> {
-    return this.store.messages.get(sessionId) ?? [];
+  async listMessages(sessionId: string, limit?: number): Promise<InterviewMessage[]> {
+    const items = this.store.messages.get(sessionId) ?? [];
+    return limit ? items.slice(-limit) : items;
   }
 
   async addMessage(message: InterviewMessage): Promise<void> {

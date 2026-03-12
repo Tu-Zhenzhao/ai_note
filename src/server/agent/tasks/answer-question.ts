@@ -1,11 +1,7 @@
-import { InteractionModule, InterviewState, QuestionType, ToolActionLog } from "@/lib/types";
+import { ExtractionOutput, InteractionModule, InterviewState, QuestionType, ToolActionLog } from "@/lib/types";
 import { InterviewRepository } from "@/server/repo/contracts";
-import { planFollowUp } from "@/server/rules/followup";
-import { generateAssistantResponse } from "@/server/services/assistant";
-import { isPreviewSectionComplete } from "@/server/services/preview-slots";
-import { syncWorkflowState } from "@/server/services/workflow";
-import { updateChecklistAnswer } from "@/server/tools/checklist-updater";
-import { openConfirmSectionInteraction } from "@/server/tools/interaction-confirm-section";
+import { getPreviewSlots } from "@/server/services/preview-slots";
+import { runAnswerTurnController } from "@/server/services/answer-turn";
 
 export interface AnswerQuestionResult {
   assistantMessage: string;
@@ -13,6 +9,7 @@ export interface AnswerQuestionResult {
   toolLogs: ToolActionLog[];
   nextQuestion: string;
   questionType: QuestionType;
+  extractionContractSummary: ExtractionOutput | null;
 }
 
 export async function runAnswerQuestionTask(params: {
@@ -21,72 +18,34 @@ export async function runAnswerQuestionTask(params: {
   turnId: string;
   userMessage: string;
   state: InterviewState;
+  language?: "en" | "zh";
 }): Promise<AnswerQuestionResult> {
-  const updateResult = await updateChecklistAnswer({
+  const controllerResult = await runAnswerTurnController({
     repo: params.repo,
     sessionId: params.sessionId,
     turnId: params.turnId,
     userMessage: params.userMessage,
     state: params.state,
+    language: params.language,
   });
-  syncWorkflowState(params.state);
-
-  const currentSectionIndex = params.state.conversation_meta.current_section_index;
-  const sectionComplete = isPreviewSectionComplete(params.state, currentSectionIndex);
-  const followUp = planFollowUp(params.state);
-  const recentMessages = await params.repo.listMessages(params.sessionId);
-
-  if (sectionComplete) {
-    const confirmResult = await openConfirmSectionInteraction({
-      repo: params.repo,
-      sessionId: params.sessionId,
-      turnId: params.turnId,
-      state: params.state,
-    });
-
-    const assistantMessage = await generateAssistantResponse({
-      state: params.state,
-      userMessage: params.userMessage,
-      nextQuestion: "Please review this section and confirm or edit anything before we continue.",
-      questionType: "confirm",
-      taskType: "answer_question",
-      plannerAction: "confirm",
-      questionStyle: "synthesize_and_confirm",
-      recentMessages,
-      currentSectionName: confirmResult.interactionModule.payload.section_name as string,
-      workflowState: params.state.workflow,
-    });
-
-    return {
-      assistantMessage,
-      interactionModule: confirmResult.interactionModule,
-      toolLogs: [updateResult.toolLog, confirmResult.toolLog],
-      nextQuestion: "Please review this section and confirm or edit anything before we continue.",
-      questionType: "confirm",
-    };
-  }
-
-  const assistantMessage = await generateAssistantResponse({
-    state: params.state,
-    userMessage: params.userMessage,
-    nextQuestion: followUp.nextQuestion,
-    questionType: followUp.questionType,
-    taskType: "answer_question",
-    plannerAction: "ask",
-    questionStyle: "reflect_and_advance",
-    recentMessages,
-    currentSectionName: followUp.targetField.split(".")[0],
-    workflowState: params.state.workflow,
-  });
+  const targetSlot = params.state.workflow.next_question_slot_id
+    ? getPreviewSlots(params.state).find((slot) => slot.id === params.state.workflow.next_question_slot_id) ?? null
+    : null;
+  const nextQuestion = params.state.workflow.pending_review_section_id
+    ? "Please confirm the current section or tell me what to adjust."
+    : targetSlot?.question_label ?? "Could you share a bit more detail?";
+  const questionType: QuestionType = params.state.workflow.pending_review_section_id
+    ? "confirm"
+    : params.state.workflow.pending_confirmation_slot_id
+      ? "confirm"
+      : "clarify";
 
   return {
-    assistantMessage,
-    interactionModule: {
-      type: "none",
-      payload: {},
-    },
-    toolLogs: [updateResult.toolLog],
-    nextQuestion: followUp.nextQuestion,
-    questionType: followUp.questionType,
+    assistantMessage: controllerResult.assistantMessage,
+    interactionModule: controllerResult.interactionModule,
+    toolLogs: controllerResult.toolLogs,
+    nextQuestion,
+    questionType,
+    extractionContractSummary: params.state.system_assessment.last_extraction_output,
   };
 }

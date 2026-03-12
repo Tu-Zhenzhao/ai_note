@@ -33,12 +33,21 @@ export function syncWorkflowState(state: InterviewState) {
     return state.workflow;
   }
 
-  if (state.workflow.pending_review_section_id || state.workflow.pending_interaction_module === "confirm_section") {
+  if (
+    state.workflow.pending_review_section_id &&
+    state.workflow.pending_review_section_id === activeSectionId &&
+    openRequired.length === 0
+  ) {
     state.workflow.phase = "confirming_section";
     state.workflow.pending_interaction_module = "confirm_section";
     state.workflow.transition_allowed = false;
     state.workflow.last_transition_reason = "awaiting_section_confirmation";
     return state.workflow;
+  }
+
+  if (state.workflow.pending_review_section_id && openRequired.length > 0) {
+    state.workflow.pending_review_section_id = null;
+    state.workflow.pending_interaction_module = null;
   }
 
   if (openRequired.length === 0) {
@@ -77,9 +86,11 @@ export function syncWorkflowState(state: InterviewState) {
   state.workflow.pending_interaction_module = null;
   state.workflow.phase = "interviewing";
   state.workflow.transition_allowed = false;
-  state.workflow.last_transition_reason = openRequired[0]
-    ? `still_waiting_on:${openRequired[0].question_label}`
-    : "required_slots_open";
+  state.workflow.last_transition_reason = state.workflow.pending_confirmation_slot_id
+    ? `awaiting_slot_confirmation:${state.workflow.pending_confirmation_slot_id}`
+    : openRequired[0]
+      ? `still_waiting_on:${openRequired[0].question_label}`
+      : "required_slots_open";
   return state.workflow;
 }
 
@@ -93,6 +104,7 @@ export function confirmPendingSectionAndAdvance(state: InterviewState, sectionId
   state.conversation_meta.current_section_index = nextIndex;
   state.conversation_meta.current_section_turn_count = 0;
   state.workflow.pending_review_section_id = null;
+  state.workflow.pending_confirmation_slot_id = null;
   state.workflow.pending_interaction_module = null;
   state.workflow.active_section_id = getSectionIdForIndex(nextIndex);
   state.workflow.transition_allowed = true;

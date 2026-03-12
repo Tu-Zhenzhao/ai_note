@@ -31,6 +31,12 @@ export type QuestionType =
 export type FollowUpExitStatus = "resolved" | "good_enough_for_now" | "defer_and_continue";
 export type PlannerAction = "ask" | "confirm" | "summarize" | "checkpoint" | "handoff" | "generate_brief";
 export type TaskType = "answer_question" | "ask_for_help" | "other_discussion";
+export type ResponseMode =
+  | "ask_active_slot"
+  | "confirm_active_slot"
+  | "confirm_section"
+  | "help_selection"
+  | "discussion";
 
 export type QuestionStyle =
   | "reflect_and_advance"
@@ -146,6 +152,7 @@ export interface InterviewWorkflowState {
   phase: WorkflowPhase;
   active_section_id: PreviewSectionId;
   pending_review_section_id: PreviewSectionId | null;
+  pending_confirmation_slot_id: string | null;
   pending_interaction_module: InteractionModuleType | null;
   next_question_slot_id: string | null;
   required_open_slot_ids: string[];
@@ -170,6 +177,83 @@ export interface StructuredChoicePrompt {
   options: StructuredChoiceOption[];
   allow_other: boolean;
   other_placeholder?: string;
+}
+
+export interface TurnIntent {
+  active_section_id: PreviewSectionId;
+  active_slot_id: string | null;
+  active_slot_target_field: string | null;
+  workflow_phase: WorkflowPhase;
+  task_type: TaskType;
+  interaction_required: boolean;
+  can_transition: boolean;
+  allowed_question_targets: string[];
+  allowed_supporting_targets: string[];
+  forbidden_question_targets: string[];
+  response_mode: ResponseMode;
+}
+
+export interface ExtractionEvidenceItem {
+  field: string;
+  snippet: string;
+  turn_id: string;
+}
+
+export interface ExtractedFact {
+  field_path: string;
+  normalized_value: unknown;
+  confidence: number;
+  source_type: "direct" | "light_inference";
+}
+
+export interface ConfirmationSignal {
+  kind: "slot_summary_confirm" | "section_confirm";
+  target_slot_id: string | null;
+  confidence: number;
+}
+
+export interface ExtractionResult {
+  facts: ExtractedFact[];
+  confirmations: ConfirmationSignal[];
+  no_answer_detected: boolean;
+  evidence: ExtractionEvidenceItem[];
+}
+
+export interface ExtractionOutput {
+  active_slot_updates: string[];
+  current_section_supporting_updates: string[];
+  cross_slot_candidates: string[];
+  answered_active_slot: boolean;
+  no_new_answer: boolean;
+  reason: string;
+  evidence: ExtractionEvidenceItem[];
+  confidence: {
+    active_slot: number;
+    current_section: number;
+    cross_slot: number;
+  };
+}
+
+export interface ContractValidationResult {
+  valid: boolean;
+  violations: string[];
+  inferred_target_slot_id: string | null;
+  fallback_used: boolean;
+}
+
+export interface ReductionResult {
+  updated_fields: string[];
+  confirmed_slot_ids: string[];
+  confirmed_section_id: PreviewSectionId | null;
+  checklist_items_advanced: string[];
+  extraction_contract_summary: ExtractionOutput;
+}
+
+export interface NextStep {
+  response_mode: ResponseMode;
+  target_slot_id: string | null;
+  target_field_path: string | null;
+  reason: string;
 }
 
 // ── Domain Sub-Types ────────────────────────────────────────────────
@@ -424,6 +508,9 @@ export interface SystemAssessment {
   planner_confidence: number;
   preview_slots: PreviewSlot[];
   confirmed_slot_ids: string[];
+  last_turn_intent: TurnIntent | null;
+  last_extraction_output: ExtractionOutput | null;
+  last_contract_validation_result: ContractValidationResult | null;
 }
 
 // ── Main Interview State (v3) ───────────────────────────────────────
@@ -730,4 +817,7 @@ export interface AgentTurnResult {
   model_route_used: Record<string, unknown> | null;
   tool_trace: ToolActionLog[];
   planner_trace: Record<string, unknown>;
+  turn_intent?: TurnIntent | null;
+  extraction_contract_summary?: ExtractionOutput | null;
+  contract_validation_result?: ContractValidationResult | null;
 }

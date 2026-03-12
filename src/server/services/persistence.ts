@@ -29,7 +29,7 @@ export async function persistStateAndSession(params: {
     session_id: params.sessionId,
     state_jsonb: params.state,
     preview_jsonb: params.preview,
-    assessment_jsonb: params.state.system_assessment,
+    assessment_jsonb: {},
     last_checkpoint_at: params.state.system_assessment.checkpoint_approved ? new Date().toISOString() : null,
   });
 }

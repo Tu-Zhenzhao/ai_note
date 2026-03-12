@@ -1,4 +1,5 @@
 import { InteractionModule, InterviewState, ToolActionLog } from "@/lib/types";
+import { buildTurnIntent } from "@/server/agent/turn-intent";
 import { InterviewRepository } from "@/server/repo/contracts";
 import { generateAssistantResponse } from "@/server/services/assistant";
 import {
@@ -40,6 +41,7 @@ export async function runDiscussionTask(params: {
   turnId: string;
   userMessage: string;
   state: InterviewState;
+  language?: "en" | "zh";
 }): Promise<DiscussionResult> {
   const historyContext = await getHistoryContext({
     repo: params.repo,
@@ -51,8 +53,15 @@ export async function runDiscussionTask(params: {
   });
 
   const questionTopic = getCurrentQuestionTopic(params.state);
+  const turnIntent = buildTurnIntent({
+    state: params.state,
+    taskType: "other_discussion",
+    responseMode: "discussion",
+  });
+  params.state.system_assessment.last_turn_intent = turnIntent;
 
   const assistantMessage = await generateAssistantResponse({
+    turnIntent,
     state: params.state,
     userMessage: params.userMessage,
     nextQuestion:
@@ -66,6 +75,7 @@ export async function runDiscussionTask(params: {
     recentMessages: historyContext.messages,
     workflowState: params.state.workflow,
     userFacingProgressNote: questionTopic,
+    language: params.language,
   });
 
   let finalMessage = assistantMessage;

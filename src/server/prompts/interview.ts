@@ -116,6 +116,7 @@ export function interviewUserPrompt(params: {
   workflowPhase?: string;
   transitionAllowed?: boolean;
   pendingReviewSectionName?: string | null;
+  language?: "en" | "zh";
 }): string {
   const currentSection = getCurrentSectionName(params.state);
   const sectionIndex = params.state.conversation_meta.current_section_index;
@@ -176,8 +177,7 @@ export function interviewUserPrompt(params: {
     .join("\n");
 
   const chatHistory = params.recentMessages
-    .slice(-8)
-    .map((m) => `${m.role === "user" ? "User" : "Agent"}: ${m.content}`)
+    .map((m) => `${m.role === "user" ? "user" : "ai"}: ${m.content}`)
     .join("\n");
 
   return [
@@ -212,5 +212,20 @@ export function interviewUserPrompt(params: {
     "IMPORTANT: Do NOT mention section names or say 'We are in…' — the UI shows section status separately.",
     "Keep it conversational. Use markdown formatting naturally (bold, lists) when it adds clarity.",
     "IMPORTANT: Required items that are still weak, inferred, or unconfirmed may be revisited. Do not move to the next section while a required item in the current section is still open.",
+    "",
+    buildLanguageInstruction(params.language),
   ].filter(Boolean).join("\n");
+}
+
+function buildLanguageInstruction(language?: "en" | "zh"): string {
+  if (language === "zh") {
+    return [
+      "=== LANGUAGE INSTRUCTION ===",
+      "The user's interface is set to: Chinese (zh).",
+      "You MUST respond entirely in Chinese (Simplified Chinese / 简体中文).",
+      "Use natural, professional Chinese. Technical terms and proper nouns (e.g. LinkedIn) may remain in English where conventional.",
+      "Do NOT mix in unnecessary English words. Keep the tone warm, concise, and conversational in Chinese.",
+    ].join("\n");
+  }
+  return "";
 }

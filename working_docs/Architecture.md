@@ -1,8 +1,12 @@
 # Architecture — AI Content Strategist Interviewer
 
-> Last updated: 2026-03-12
+> Last updated: 2026-03-13
 >
-> This document describes the **current implemented architecture** in the codebase. It reflects the live workflow-based design, preview-slot layer, confirmation UI, structured-choice fallback, and the remaining role of the checklist layer.
+> Cleanup phase note: the legacy LangGraph orchestration runtime and legacy planner runtime/tool stack were removed. The active backend path is `agent-runtime -> classifyTurn -> task handlers -> answer-turn controller`, exposed through a `TurnController` boundary used by `/api/interview/message`.
+>
+> Cleanup boundary: no DB schema migration changes and no `/api/interview/*` contract changes in this phase.
+>
+> Note: deeper sections in this document still contain historical descriptions from before the cleanup and will be rewritten in the next architecture pass.
 
 ---
 
@@ -25,8 +29,8 @@ Frontend chat + preview
 POST /api/interview/message
         │
         ▼
-LangGraph engine
-  receive → extract → evaluate → plan → assistant → preview
+TurnController
+  classify intent → run task workflow → compose preview
         │
         ▼
 JSON response
@@ -88,17 +92,17 @@ This split is implemented, but the current planner is still partly **question-le
 
 ## 3. Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js App Router, React 18, TypeScript |
-| Styling | Global CSS + inline style objects, warm/earthy custom theme |
-| AI runtime | LangGraph `StateGraph` orchestration |
-| LLM SDK | Vercel AI SDK `generateText` / `generateObject` |
-| Models | Gemini 3.1 Flash Lite, GPT-5, DeepSeek fallback |
-| Backend | TypeScript / Node.js |
+| Layer       | Technology                                                   |
+| ----------- | ------------------------------------------------------------ |
+| Frontend    | Next.js App Router, React 18, TypeScript                     |
+| Styling     | Global CSS + inline style objects, warm/earthy custom theme  |
+| AI runtime  | LangGraph `StateGraph` orchestration                         |
+| LLM SDK     | Vercel AI SDK `generateText` / `generateObject`              |
+| Models      | Gemini 3.1 Flash Lite, GPT-5, DeepSeek fallback              |
+| Backend     | TypeScript / Node.js                                         |
 | Persistence | PostgreSQL + JSONB, with in-memory repo for development/tests |
-| Validation | Zod |
-| Testing | Vitest |
+| Validation  | Zod                                                          |
+| Testing     | Vitest                                                       |
 
 ---
 
@@ -219,65 +223,65 @@ Source: `src/server/orchestration/engine.ts`
 
 ### Runtime and orchestration
 
-| File | Purpose |
-|---|---|
-| `src/server/orchestration/engine.ts` | LangGraph pipeline and per-turn orchestration |
-| `src/server/planner/runtime.ts` | Planner decision policy and optional structured choice fallback |
-| `src/server/planner/tools.ts` | Logged planner tool wrappers |
-| `src/server/planner/retrieval.ts` | Chat-book and conflict recall |
+| File                                 | Purpose                                                      |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `src/server/orchestration/engine.ts` | LangGraph pipeline and per-turn orchestration                |
+| `src/server/planner/runtime.ts`      | Planner decision policy and optional structured choice fallback |
+| `src/server/planner/tools.ts`        | Logged planner tool wrappers                                 |
+| `src/server/planner/retrieval.ts`    | Chat-book and conflict recall                                |
 
 ### State truth and projection
 
-| File | Purpose |
-|---|---|
-| `src/lib/types.ts` | Shared types including `InterviewWorkflowState` and `StructuredChoicePrompt` |
-| `src/lib/state.ts` | Initial state factory and module weight setup |
-| `src/server/services/workflow.ts` | Workflow state machine and deterministic confirm/advance |
-| `src/server/services/preview-slots.ts` | Preview slot construction and slot-completion policy |
-| `src/server/services/preview.ts` | User-facing preview composition and internal preview payload |
+| File                                   | Purpose                                                      |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `src/lib/types.ts`                     | Shared types including `InterviewWorkflowState` and `StructuredChoicePrompt` |
+| `src/lib/state.ts`                     | Initial state factory and module weight setup                |
+| `src/server/services/workflow.ts`      | Workflow state machine and deterministic confirm/advance     |
+| `src/server/services/preview-slots.ts` | Preview slot construction and slot-completion policy         |
+| `src/server/services/preview.ts`       | User-facing preview composition and internal preview payload |
 
 ### Extraction and assistant
 
-| File | Purpose |
-|---|---|
+| File                                | Purpose                                                      |
+| ----------------------------------- | ------------------------------------------------------------ |
 | `src/server/services/extraction.ts` | Heuristic + model extraction, direct-answer confirmation path |
-| `src/server/services/assistant.ts` | Hybrid assistant assembly with deterministic workflow line |
-| `src/server/prompts/interview.ts` | Assistant prompt builder with workflow constraints |
-| `src/server/prompts/extraction.ts` | Extraction prompt builder |
-| `src/server/prompts/AGENT.md` | High-level behavior instructions for the assistant |
+| `src/server/services/assistant.ts`  | Hybrid assistant assembly with deterministic workflow line   |
+| `src/server/prompts/interview.ts`   | Assistant prompt builder with workflow constraints           |
+| `src/server/prompts/extraction.ts`  | Extraction prompt builder                                    |
+| `src/server/prompts/AGENT.md`       | High-level behavior instructions for the assistant           |
 
 ### Rule layers
 
-| File | Purpose |
-|---|---|
-| `src/server/rules/checklist.ts` | Checklist model, cross-section advancement rules, legacy section helpers |
-| `src/server/rules/followup.ts` | Follow-up ladders, fatigue detection, question fallback strategies |
-| `src/server/rules/completion.ts` | Completion scoring and generation readiness |
+| File                             | Purpose                                                      |
+| -------------------------------- | ------------------------------------------------------------ |
+| `src/server/rules/checklist.ts`  | Checklist model, cross-section advancement rules, legacy section helpers |
+| `src/server/rules/followup.ts`   | Follow-up ladders, fatigue detection, question fallback strategies |
+| `src/server/rules/completion.ts` | Completion scoring and generation readiness                  |
 
 ### Frontend and APIs
 
-| File | Purpose |
-|---|---|
-| `src/components/interview-app.tsx` | Main interview UI |
-| `src/components/interview-review-state.ts` | Review section mapping and active/confirming visual helpers |
-| `app/api/interview/message/route.ts` | Main turn API |
-| `app/api/interview/preview/approve/route.ts` | Review confirmation endpoint |
-| `app/api/interview/preview/edit/route.ts` | Direct edit endpoint for review panel |
+| File                                         | Purpose                                                     |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| `src/components/interview-app.tsx`           | Main interview UI                                           |
+| `src/components/interview-review-state.ts`   | Review section mapping and active/confirming visual helpers |
+| `app/api/interview/message/route.ts`         | Main turn API                                               |
+| `app/api/interview/preview/approve/route.ts` | Review confirmation endpoint                                |
+| `app/api/interview/preview/edit/route.ts`    | Direct edit endpoint for review panel                       |
 
 ### Persistence and sessions
 
-| File | Purpose |
-|---|---|
-| `src/server/repo/contracts.ts` | Repository interface |
-| `src/server/repo/postgres-repo.ts` | PostgreSQL persistence |
-| `src/server/repo/in-memory-repo.ts` | In-memory persistence |
-| `src/server/services/session.ts` | Session retrieval / creation |
+| File                                 | Purpose                                 |
+| ------------------------------------ | --------------------------------------- |
+| `src/server/repo/contracts.ts`       | Repository interface                    |
+| `src/server/repo/postgres-repo.ts`   | PostgreSQL persistence                  |
+| `src/server/repo/in-memory-repo.ts`  | In-memory persistence                   |
+| `src/server/services/session.ts`     | Session retrieval / creation            |
 | `src/server/services/persistence.ts` | Persist final state and session summary |
 
 ### Models and telemetry
 
-| File | Purpose |
-|---|---|
+| File                           | Purpose                                                 |
+| ------------------------------ | ------------------------------------------------------- |
 | `src/server/model/adapters.ts` | Provider routing, timeout handling, token/cost tracking |
 
 ---
@@ -305,19 +309,19 @@ Important distinction:
 
 ### 7.2 Major domain modules
 
-| Module | Key fields |
-|---|---|
-| `company_profile` | company name, one-liner, industry, business model |
-| `brand_story` | founding story, mission, core belief, what people should remember |
-| `product_service` | primary offering, problems solved, differentiators |
-| `market_audience` | primary audience, roles, pain points, desired outcomes, attraction goal |
-| `linkedin_content_strategy` | primary content goal, desired brand perception, formats, topics, topics to avoid |
-| `evidence_library` | case studies, metrics, assets, source materials |
-| `content_preferences` | preferred tone, voice, style tags |
-| `content_dislikes` | disliked tone and messaging patterns |
-| `constraints_and_boundaries` | forbidden topics, sensitive topics, claims policy |
-| `user_concerns` | main concerns |
-| `content_readiness` | suggested first topic, format, goal, blockers |
+| Module                       | Key fields                                                   |
+| ---------------------------- | ------------------------------------------------------------ |
+| `company_profile`            | company name, one-liner, industry, business model            |
+| `brand_story`                | founding story, mission, core belief, what people should remember |
+| `product_service`            | primary offering, problems solved, differentiators           |
+| `market_audience`            | primary audience, roles, pain points, desired outcomes, attraction goal |
+| `linkedin_content_strategy`  | primary content goal, desired brand perception, formats, topics, topics to avoid |
+| `evidence_library`           | case studies, metrics, assets, source materials              |
+| `content_preferences`        | preferred tone, voice, style tags                            |
+| `content_dislikes`           | disliked tone and messaging patterns                         |
+| `constraints_and_boundaries` | forbidden topics, sensitive topics, claims policy            |
+| `user_concerns`              | main concerns                                                |
+| `content_readiness`          | suggested first topic, format, goal, blockers                |
 
 ### 7.3 `conversation_meta`
 
@@ -389,14 +393,14 @@ Source: `src/lib/types.ts`, `src/lib/state.ts`
 
 The app uses six user-visible sections:
 
-| Index | Section ID | Name | Modules |
-|---|---|---|---|
-| 0 | `company_understanding` | Company Understanding | `company_profile`, `brand_story`, `product_service` |
-| 1 | `audience_understanding` | Audience Understanding | `market_audience` |
-| 2 | `linkedin_content_strategy` | LinkedIn Content Strategy | `linkedin_content_strategy` |
-| 3 | `evidence_and_proof_assets` | Evidence & Proof Assets | `evidence_library` |
-| 4 | `content_preferences_and_boundaries` | Content Preferences & Boundaries | `content_preferences`, `content_dislikes`, `constraints_and_boundaries`, `user_concerns` |
-| 5 | `generation_plan` | Generation Plan | `content_readiness` |
+| Index | Section ID                           | Name                             | Modules                                                      |
+| ----- | ------------------------------------ | -------------------------------- | ------------------------------------------------------------ |
+| 0     | `company_understanding`              | Company Understanding            | `company_profile`, `brand_story`, `product_service`          |
+| 1     | `audience_understanding`             | Audience Understanding           | `market_audience`                                            |
+| 2     | `linkedin_content_strategy`          | LinkedIn Content Strategy        | `linkedin_content_strategy`                                  |
+| 3     | `evidence_and_proof_assets`          | Evidence & Proof Assets          | `evidence_library`                                           |
+| 4     | `content_preferences_and_boundaries` | Content Preferences & Boundaries | `content_preferences`, `content_dislikes`, `constraints_and_boundaries`, `user_concerns` |
+| 5     | `generation_plan`                    | Generation Plan                  | `content_readiness`                                          |
 
 ### 8.1 Slot model
 
@@ -498,13 +502,13 @@ This function:
 
 ### 9.3 Practical meaning of phases
 
-| Phase | Meaning |
-|---|---|
-| `interviewing` | Section still has blockers; continue gathering information |
+| Phase                | Meaning                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| `interviewing`       | Section still has blockers; continue gathering information   |
 | `confirming_section` | Current section is ready for review; frontend should open the confirmation panel |
-| `checkpoint` | Midpoint/global verification step recommended |
-| `generation_ready` | System believes first-brief generation can happen |
-| `handoff` | Human strategist intervention is preferred |
+| `checkpoint`         | Midpoint/global verification step recommended                |
+| `generation_ready`   | System believes first-brief generation can happen            |
+| `handoff`            | Human strategist intervention is preferred                   |
 
 ### 9.4 Current nuance
 
@@ -1097,3 +1101,755 @@ These are not documentation errors; they are current implementation realities.
 4. **Preview-slot alignment**: display, blocker logic, and section readiness are all grounded in the same slot layer.
 5. **Auditable operations**: tool actions, turn diagnostics, and state updates are logged.
 6. **Progressive visibility**: users always see a live preview of what the system currently believes.
+
+# Architecture — AI Strategist Agent System
+
+> Last updated: 2026-03-12
+>
+> This document describes the **target architecture** for the next refactor of the AI strategist. It is based on lessons from the current implementation, but updates the system to an **agent-centered, interaction-module-driven architecture**.
+>
+> The current implementation already contains valuable foundations — especially the frontend shell, preview/checklist structures, workflow rendering, persistence, and model-routing ideas. This document keeps those reusable parts and refactors the orchestration model around a true AI agent core.
+
+---
+
+## 1. System Overview
+
+The app is a dual-panel AI strategist that guides a user through a structured strategic interview.
+
+At a high level:
+
+- The **left panel** is a chat workspace where the user answers, asks for help, or discusses.
+- The **right panel** is a live, structured strategy/checklist view that reflects deterministic progress.
+- At the center is an **AI agent orchestrator** that receives every user message first, identifies the task type of the turn, calls tools/modules, and decides what interaction happens next.
+
+The system is not just a chatbot and not just a form.
+
+It is best understood as:
+
+> a **deterministic interview engine managed by an AI agent orchestrator**
+
+Primary architectural intent:
+
+- preserve natural conversation
+- keep progression deterministic
+- let AI help users when they are stuck
+- separate discussion from state mutation
+- make UI interaction modules first-class backend-controlled operations
+
+Target high-level flow:
+
+```text
+Frontend chat + live checklist
+        │
+        ▼
+POST /api/interview/message
+        │
+        ▼
+AI Agent Runtime
+  receive turn
+    → planner step
+    → route to task module
+    → call tools / UI interaction modules
+    → update deterministic state when allowed
+    → compose assistant response
+        │
+        ▼
+JSON response
+  - assistant message
+  - updated checklist / preview
+  - workflow state
+  - active interaction module
+  - optional structured interaction payload
+        │
+        ▼
+Frontend renders
+  - chat turn
+  - live checklist state
+  - confirmation panel
+  - option selection panel
+  - any future interaction modules
+```
+
+---
+
+## 2. Architectural Direction
+
+This refactor changes the center of gravity of the system.
+
+### Current implementation strengths worth keeping
+
+The current codebase already has strong building blocks that should be preserved:
+
+- dual-panel frontend experience
+- live preview / checklist rendering
+- backend-owned state mutation
+- workflow-driven confirmation UI
+- structured-choice UI pattern
+- PostgreSQL + JSONB persistence model
+- model routing abstraction
+- audit / telemetry mindset
+
+### What must change
+
+The current implementation is still mostly:
+
+- workflow-first for review UI
+- planner/question-first for conversational turn composition
+
+The target architecture should instead become:
+
+- **agent-first for orchestration**
+- **interaction-module-first for next-step execution**
+- **deterministic checklist-first for durable progress truth**
+
+That means the planner should no longer mainly output “the next question.”
+It should output **which task branch to execute** and **which interaction module should be active**.
+
+---
+
+## 3. Responsibility Split
+
+### AI agent-owned responsibilities
+
+- receive every user turn first
+- interpret what the user is trying to do in this turn
+- run the planner step
+- choose the correct task branch
+- call tools and UI interaction modules
+- generate conversational help, suggestions, and follow-up phrasing
+- operate under AGENT.md rules
+
+### Backend-owned responsibilities
+
+- deterministic state mutation
+- checklist truth
+- section order and completion policy
+- workflow / interaction state
+- tool execution
+- persistence
+- model routing and fallback
+- audit logs and telemetry
+
+### Frontend-owned responsibilities
+
+- render backend-returned state directly
+- render the live checklist / preview
+- render active interaction modules
+- render confirmation and structured selection UIs
+- never infer progression from assistant wording alone
+
+---
+
+## 4. Core Architecture
+
+### 4.1 Top-level modules
+
+The target system has these top-level modules:
+
+1. **Frontend UI**
+2. **AI Agent Core**
+3. **Planner Step**
+4. **Task Execution Modules**
+5. **Tool / Interaction Module Layer**
+6. **Deterministic Checklist State**
+7. **Persistence / Telemetry Layer**
+8. **Model Routing Layer**
+9. **AGENT.md Prompt System**
+
+### 4.2 Core execution shape
+
+```text
+User message
+   │
+   ▼
+AI Agent Core
+   │
+   ▼
+Planner Step
+(classify turn)
+   │
+   ├─ Answer Question
+   ├─ Ask for Help About Question
+   └─ Other / Discussion
+   │
+   ▼
+Task Execution Module
+   │
+   ▼
+Call tools / interaction modules
+   │
+   ▼
+Update checklist state when allowed
+   │
+   ▼
+Compose assistant response + UI payload
+   │
+   ▼
+Frontend renders
+```
+
+---
+
+## 5. Planner Step
+
+The **planner step** is the first major decision point for every turn.
+
+Its job is:
+
+> determine what the user is trying to do in this turn, then assign the correct task branch
+
+The target planner has exactly **three primary task types**.
+
+### 5.1 Task Type A — Answer Question
+
+This is the main path.
+
+Use this branch when the user is directly answering the current strategic question(s).
+
+Examples:
+
+- giving a company description
+- describing the audience
+- stating goals or preferences
+- selecting an option that should become the answer
+
+### 5.2 Task Type B — Ask for Help About Question
+
+Use this branch when the user is not really answering yet, but needs help to answer.
+
+Examples:
+
+- “I’m not sure.”
+- “Do you have suggestions?”
+- “Can you give me better ideas?”
+- “What should I write here?”
+
+This branch should lead to a structured support interaction, not a normal follow-up question.
+
+### 5.3 Task Type C — Other / Discussion
+
+This is the fallback conversational branch.
+
+Use this branch when the user is:
+
+- asking for clarification
+- discussing ideas
+- chatting about the question
+- exploring meaning
+- expressing confusion
+- doing something that should not directly mutate checklist state
+
+This branch is conversationally useful, but should usually avoid durable checklist mutation.
+
+---
+
+## 6. Task Execution Modules
+
+Each planner outcome routes into a dedicated execution module.
+
+### 6.1 Answer Question Module
+
+This is the main deterministic completion engine.
+
+Workflow:
+
+1. retrieve current checklist state
+2. identify which current question / field the user is answering
+3. update the corresponding structured answer(s)
+4. evaluate whether the current section is complete
+5. if complete, activate confirmation interaction
+6. if incomplete, ask the next needed question
+
+Possible outcomes:
+
+- updated checklist answers
+- updated live preview
+- next follow-up question
+- section confirmation interaction
+
+### 6.2 Help About Question Module
+
+This module exists to reduce user friction when they do not know how to answer.
+
+Workflow:
+
+1. retrieve current checklist context
+2. retrieve relevant conversation history
+3. identify the active question / strategic gap
+4. generate structured suggestions/options
+5. open an option-selection interaction module
+6. when the user chooses an option, route that result into the Answer Question Module
+
+This is important:
+
+- help is not a side chat
+- help should feed back into deterministic progress
+
+### 6.3 Other / Discussion Module
+
+This module handles open discussion and clarification.
+
+Workflow:
+
+1. retrieve checklist and recent history
+2. understand where the user currently is in the interview
+3. provide explanation, discussion, or clarification
+4. avoid direct checklist mutation unless the turn clearly becomes an answer turn
+
+This module behaves most like a general-purpose AI assistant, but still stays grounded in the structured interview context.
+
+---
+
+## 7. Tool and Interaction Module Layer
+
+The AI agent must have modular tools it can call at any time.
+
+These should be treated as first-class backend capabilities.
+
+### 7.1 Core tool categories
+
+#### State / data tools
+
+- **Checklist Reader**
+  - read current checklist state
+  - read active section
+  - read missing / completed items
+
+- **Checklist Updater**
+  - write structured answers
+  - mark item status
+  - store evidence / provenance
+
+- **History Reader**
+  - retrieve recent conversation history
+  - retrieve relevant prior discussion for context
+
+- **Session / State Reader**
+  - retrieve workflow state
+  - retrieve pending interaction state
+
+#### Interaction tools
+
+- **Confirmation Window Tool**
+  - open section confirmation UI
+  - collect confirmation result
+
+- **Option Selection Tool**
+  - open structured suggestion-choice UI
+  - collect selected option or `Other`
+
+- **Future Interaction Modules**
+  - checkpoint review tool
+  - contradiction-resolution tool
+  - handoff-to-human tool
+  - rewrite-suggestion tool
+
+### 7.2 Key design rule
+
+Every UI interaction that matters to workflow should be represented as a backend-managed tool / interaction module.
+
+The frontend renders it.
+The agent activates it.
+The backend owns its meaning.
+
+---
+
+## 8. Deterministic Checklist Backbone
+
+The checklist remains the durable structured backbone of the application.
+
+### 8.1 Checklist role
+
+The checklist should continue to provide:
+
+- ordered sections
+- required questions
+- completion status
+- evidence/provenance
+- live progress view for the right panel
+- section completeness checks
+
+### 8.2 Section model
+
+The strategist currently uses **six ordered sections**.
+Each section contains deterministic required items.
+The exact wording or display can evolve, but the ordered structure remains stable.
+
+Example shape:
+
+```text
+Section 1
+  - Question A
+  - Question B
+  - Question C
+
+Section 2
+  - Question A
+  - Question B
+
+...
+
+Section 6
+```
+
+### 8.3 Checklist truth policy
+
+The checklist should remain the truth for durable progress, but unlike the current implementation, the agent runtime should consult it through explicit tools and execution modules rather than blending it too deeply into question-first planner logic.
+
+### 8.4 Live right-panel behavior
+
+The right panel should remain a **dynamic, live update** of what the system currently believes, based on the deterministic checklist/state model.
+
+This panel is not just visual decoration.
+It is the live structured state view of the agent-managed interview.
+
+---
+
+## 9. Workflow and Interaction State
+
+The system still needs workflow state, but it should become more clearly aligned with interaction modules.
+
+### 9.1 Recommended workflow shape
+
+The workflow should track at least:
+
+- active section
+- active question / target item
+- planner task type for current turn
+- pending interaction module
+- whether section confirmation is required
+- whether generation/handoff/checkpoint is available
+
+### 9.2 Recommended phase framing
+
+A practical target phase model is:
+
+- `interviewing`
+- `confirming_section`
+- `structured_help_selection`
+- `checkpoint`
+- `generation_ready`
+- `handoff`
+
+Compared with the current implementation, this adds a more explicit interaction-state framing rather than treating everything as question progression plus some conditional UI.
+
+---
+
+## 10. AGENT.md Prompt System
+
+AGENT.md remains essential and should be treated as the behavioral operating manual of the agent.
+
+It should define:
+
+- high-level mission
+- planner-step rules
+- exact meaning of the three task types
+- when checklist mutation is allowed
+- when to open interaction modules
+- how to ask follow-ups
+- how to help without over-advancing
+- how to behave during confirmation / discussion / structured choice turns
+
+In short:
+
+> AGENT.md is the soul of the agent, but backend rules remain the durable authority.
+
+---
+
+## 11. Model Layer and Provider Strategy
+
+The model layer must support provider flexibility.
+
+### 11.1 Product requirement
+
+The system should allow the main/default model to be chosen between:
+
+- **OpenAI GPT**
+- **Google Gemini**
+
+And the backup model should be:
+
+- **DeepSeek**
+
+### 11.2 Recommended engineering approach
+
+Use a provider-agnostic model layer with explicit routing and fallback.
+
+Recommended stack direction:
+
+- **Vercel AI SDK** for model abstraction, streaming, tool compatibility, and frontend integration
+- **provider routing layer** for explicit primary/co-primary selection
+- **DeepSeek fallback** for resilient backup behavior
+
+### 11.3 Routing concept
+
+The routing layer should support:
+
+- explicit selected primary provider/model
+- optional co-primary provider/model
+- hard fallback order
+- timeout handling
+- telemetry on route used and cost
+
+Example policy:
+
+- primary: user-configurable between GPT and Gemini
+- co-primary: the other major provider
+- fallback: DeepSeek
+
+---
+
+## 12. Persistence and Telemetry
+
+These parts from the current system are still good and should be preserved.
+
+### 12.1 Persistence
+
+Keep:
+
+- PostgreSQL + JSONB persistence
+- in-memory repo for development/tests
+- per-session state saving
+- message history
+- tool action logs
+- checkpoint / handoff artifacts when needed
+
+### 12.2 Telemetry
+
+Keep and extend:
+
+- model route used
+- token usage
+- cost estimation
+- tool call logs
+- planner trace / task classification trace
+- active interaction module trace
+
+This remains important for debugging and trust.
+
+---
+
+## 13. Frontend Architecture
+
+The current dual-panel frontend design should largely remain.
+
+### 13.1 Left panel
+
+Keep:
+
+- chat interface
+- input area
+- optional active interaction card in input region
+
+### 13.2 Right panel
+
+Keep:
+
+- live checklist / preview
+- active-section highlighting
+- progress / blocker visibility
+- confirmation-focused state cues
+
+### 13.3 New frontend principle
+
+The frontend should become a renderer of **active interaction modules**, not just a renderer of review panels plus optional structured choice.
+
+That means the UI contract should evolve toward:
+
+- `interaction_module.type`
+- `interaction_module.payload`
+- `workflow_state`
+- `updated_preview`
+
+Possible interaction module types:
+
+- `confirm_section`
+- `select_help_option`
+- `checkpoint_review`
+- `resolve_conflict`
+- `none`
+
+---
+
+## 14. Recommended API Contract Direction
+
+The main message endpoint can remain, but its response should evolve.
+
+### 14.1 Main turn endpoint
+
+```json
+{
+  "session_id": "uuid",
+  "user_message": "string"
+}
+```
+
+### 14.2 Recommended response shape
+
+```json
+{
+  "assistant_message": "string",
+  "updated_preview": {},
+  "workflow_state": {},
+  "planner_task_type": "answer_question | ask_for_help | other_discussion",
+  "interaction_module": {
+    "type": "confirm_section | select_help_option | none",
+    "payload": {}
+  },
+  "model_route_used": {},
+  "tool_trace": [],
+  "planner_trace": {}
+}
+```
+
+This is a cleaner evolution from the current architecture because it makes the next interaction explicit.
+
+---
+
+## 15. Architecture Diagram
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│                         USER UI                          │
+│                                                          │
+│  ┌─────────────────────────┐   ┌───────────────────────┐ │
+│  │      Chat Interface     │   │   Live Checklist UI   │ │
+│  │       (Left Panel)      │   │    (Right Panel)      │ │
+│  └──────────────┬──────────┘   └───────────┬───────────┘ │
+└─────────────────┼──────────────────────────┼─────────────┘
+                  │                          │
+                  ▼                          │
+        ┌───────────────────────────────┐    │
+        │          AI AGENT CORE        │◄───┘
+        │       (Core Orchestrator)     │
+        └───────────────┬───────────────┘
+                        │
+                        ▼
+              ┌───────────────────────┐
+              │      PLANNER STEP     │
+              │   (Turn Classifier)   │
+              └───────┬───────┬──────┘
+                      │       │
+      ┌───────────────┘       └───────────────┐
+      ▼                                       ▼
+┌───────────────┐                     ┌──────────────────┐
+│ ANSWER TASK   │                     │ OTHER / DISCUSS  │
+│ MODULE        │                     │ MODULE           │
+└───────┬───────┘                     └────────┬─────────┘
+        │                                      │
+        ▼                                      ▼
+┌────────────────────┐                ┌──────────────────┐
+│ Read Checklist     │                │ Read Context     │
+│ Update Answers     │                │ Clarify / Explain│
+│ Check Completion   │                │ No direct write  │
+└───────┬────────────┘                └──────────────────┘
+        │
+        ▼
+┌────────────────────┐
+│ Section complete?  │
+└───────┬────────────┘
+        │
+  ┌─────┴─────┐
+  ▼           ▼
+ NO           YES
+ │            │
+ ▼            ▼
+Ask next      Activate confirmation
+question      interaction module
+
+
+Planner alternate branch:
+
+┌───────────────────────┐
+│ HELP ABOUT QUESTION   │
+│ MODULE                │
+└──────────┬────────────┘
+           ▼
+   Read checklist + history
+           ▼
+   Generate structured suggestions
+           ▼
+   Activate option-selection module
+           ▼
+   User selects option
+           ▼
+   Route selected option into
+   Answer Task Module
+```
+
+---
+
+## 16. What We Keep vs Refactor
+
+### 16.1 Keep
+
+These current concepts are still valuable and should be reused:
+
+- dual-panel app structure
+- backend-owned mutation
+- persistence layer
+- model routing abstraction
+- workflow-driven confirmation idea
+- structured choice UI pattern
+- checklist data structure mindset
+- telemetry / audit logging
+- preview as live structured state view
+
+### 16.2 Refactor
+
+These are the main changes:
+
+1. replace question-first planner framing with **task-type planner framing**
+2. make interaction modules first-class backend contracts
+3. let “help me answer” become a dedicated module, not just a phrasing variation
+4. simplify durable truth around checklist progression
+5. reduce narration drift by making the interaction contract explicit
+6. reframe the system around a true **AI agent core** rather than a workflow pipeline that only partially behaves like an agent
+
+---
+
+## 17. Practical Engineering Recommendation
+
+For implementation, the most suitable engineering direction is:
+
+- keep the current **Next.js + TypeScript** application base
+- keep a **provider-agnostic model layer**
+- use **Vercel AI SDK** for multi-provider model access, structured output support, streaming, and UI integration
+- keep backend-owned orchestration logic rather than delegating product truth to a generic autonomous agent framework
+- optionally use a workflow runtime only if it helps express the planner/task branches cleanly
+
+The key point is:
+
+> do not outsource the product logic to a generic agent framework
+
+The real product value is the deterministic planner/task/checklist system.
+The agent runtime should support that system, not replace it.
+
+---
+
+## 18. Design Principles
+
+1. **AI agent as orchestrator**: every turn starts with the agent core.
+2. **Deterministic durable truth**: backend owns checklist progression and persistence.
+3. **Task-type planning before question phrasing**: first decide what kind of turn this is.
+4. **Interaction-module-first UI control**: important UI behaviors are backend-managed modules.
+5. **Natural but bounded conversation**: AI stays helpful without owning state truth.
+6. **Reusable modular tools**: checklist, history, confirmation, and structured selection should all be callable tools.
+7. **Provider flexibility**: GPT and Gemini as primary choices, DeepSeek as backup.
+8. **Auditability**: tool calls, planner decisions, and routing should be observable.
+
+---
+
+## 19. Summary
+
+The current implementation already proved several good ideas, especially around frontend rendering, preview/checklist visibility, backend-controlled truth, confirmation UI, and model routing.
+
+The next architecture should preserve those strengths while refactoring the center of the system into:
+
+- an **AI agent core**
+- a **planner step with three task types**
+- dedicated **execution modules**
+- modular **interaction tools**
+- and a deterministic **checklist backbone**
+
+That is the target architecture this project should now move toward.

@@ -15,6 +15,7 @@ Every user turn must map to exactly one task type:
 
 1. `answer_question`
    - User is directly answering the active question.
+   - Also use this when the user is clearly trying to answer, even if the reply is partial, long, reflective, meandering, or mixed with background/context.
    - This is the only normal path that should mutate checklist answers.
 
 2. `ask_for_help`
@@ -23,8 +24,9 @@ Every user turn must map to exactly one task type:
    - The selected option becomes candidate input to `answer_question` on the next step.
 
 3. `other_discussion`
-   - Clarification, exploration, side discussion, or confusion.
+   - Explicit free talk, side discussion, brainstorming, or clarification-only exchange.
    - Keep conversation useful.
+   - Do not use this as a catch-all for ambiguous answers.
    - Do not mutate checklist answers unless the turn clearly becomes an answer.
 
 ## Mutation Rules
@@ -62,6 +64,15 @@ Guardrail behavior:
 
 - In `confirming_section`, avoid normal answer progression and stay in confirmation-support behavior.
 - In `structured_help_selection`, prioritize option selection resolution.
+
+## Classification Defaults
+
+- Always check the latest assistant question before deciding the task type.
+- If the user is plausibly responding to that question, default to `answer_question`.
+- Do not route to `other_discussion` just because the user answer is broad, exploratory, nuanced, or includes extra commentary.
+- Route to `other_discussion` only when the user is clearly shifting away from answering into side conversation or clarification without providing their own answer.
+- If the user asks what the current question means instead of answering it, that is `other_discussion`.
+- If you are torn between `answer_question` and `other_discussion`, choose `answer_question`.
 
 ## Auto-Confirmation Pattern
 

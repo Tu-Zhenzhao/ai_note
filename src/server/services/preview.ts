@@ -321,25 +321,10 @@ export function composePreview(state: InterviewState) {
       "Continue interview if needed",
     ],
     internal_preview: {
-      preview_slots: slots,
-      current_section_slots: getPreviewSlotsForSectionIndex(
-        state,
-        state.conversation_meta.current_section_index,
-      ),
-      current_section_open_slots: getOpenPreviewSlotsForSectionIndex(
-        state,
-        state.conversation_meta.current_section_index,
-      ),
+      preview_slots: slots.map((s) => ({ id: s.id, question_label: s.question_label, status: s.status, verification_state: s.verification_state })),
       current_section_id: getSectionIdForIndex(
         state.conversation_meta.current_section_index,
       ),
-      module_completion_status: state.system_assessment.module_completion_map,
-      checklist_completion_status: state.system_assessment.checklist_completion_map,
-      confidence_scores: state.system_assessment.confidence_scores,
-      weak_fields: state.system_assessment.weak_fields,
-      unconfirmed_fields: state.system_assessment.unconfirmed_fields,
-      evidence_strength: state.system_assessment.confidence_scores.evidence_strength,
-      strategy_confidence: state.system_assessment.confidence_scores.strategy_coherence,
       generation_ready_flag: state.content_readiness.brief_can_be_generated_now,
     },
   };

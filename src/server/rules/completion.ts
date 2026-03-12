@@ -345,6 +345,10 @@ function decideNextBestMove(params: {
 }
 
 export function evaluateCompletion(state: InterviewState): CompletionState {
+  if (state.system_assessment.pending_conflicts.length > 10) {
+    state.system_assessment.pending_conflicts = state.system_assessment.pending_conflicts.slice(-10);
+  }
+
   const moduleMap = computeModuleStatuses(state);
   const score = computeScore(moduleMap);
   const { missing, weak, unconfirmed } = detectMissingWeakUnconfirmed(state, moduleMap);

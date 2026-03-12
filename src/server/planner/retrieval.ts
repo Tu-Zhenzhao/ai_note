@@ -36,7 +36,7 @@ export async function recallChatBook(params: {
   module?: string;
   limit?: number;
 }): Promise<RecalledMemory[]> {
-  const items = await params.repo.listChatBookEntries(params.sessionId, 160);
+  const items = await params.repo.listChatBookEntries(params.sessionId, 40);
   const queryTokens = tokenize(params.query);
   const nowMs = Date.now();
 

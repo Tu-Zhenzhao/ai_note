@@ -131,8 +131,15 @@ export class PostgresInterviewRepository implements InterviewRepository {
     );
   }
 
-  async listMessages(sessionId: string): Promise<InterviewMessage[]> {
+  async listMessages(sessionId: string, limit?: number): Promise<InterviewMessage[]> {
     const pool = this.ensurePool();
+    if (limit) {
+      const result = await pool.query(
+        "select * from (select * from interview_messages where session_id = $1 order by created_at desc limit $2) sub order by created_at asc",
+        [sessionId, limit],
+      );
+      return result.rows as InterviewMessage[];
+    }
     const result = await pool.query("select * from interview_messages where session_id = $1 order by created_at asc", [sessionId]);
     return result.rows as InterviewMessage[];
   }

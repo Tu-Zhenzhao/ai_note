@@ -1,13 +1,13 @@
 # AI Content Strategist Interviewer (V2)
 
-Next.js + LangGraph + Postgres JSONB/pgvector interview engine with a planner-and-tools runtime, chat-book memory, and checkpoint-gated generation flow for LinkedIn content.
+Next.js + Postgres JSONB/pgvector interview engine with a turn-controller runtime, chat-book memory, and checkpoint-gated generation flow for LinkedIn content.
 
 ## Stack
 
 - Next.js (App Router)
 - Vercel AI SDK
-- LangGraph.js
-- Postgres + JSONB (with in-memory fallback for local/demo)
+- SuperV1 turn runtime (`/api/conversations/start` + `/api/turn`)
+- Postgres + JSONB
 
 ## Required Environment Variables
 
@@ -35,8 +35,13 @@ Open `http://localhost:3000`.
 ## Database
 
 Apply SQL from [`sql/schema.sql`](/Users/tuzhenzhao/Documents/Chris_demo/sql/schema.sql) to your Postgres instance.
+SuperV1 requires Postgres. `DATABASE_URL` is mandatory.
+Run migrations in order: `001_initial_schema.sql` then `002_superv1_schema.sql`.
+Or run:
 
-If `DATABASE_URL` is not set, the app uses in-memory persistence for demo purposes.
+```bash
+npm run migrate
+```
 
 ## API Endpoints
 
@@ -47,6 +52,22 @@ If `DATABASE_URL` is not set, the app uses in-memory persistence for demo purpos
 - `POST /api/interview/generate-content`
 - `POST /api/interview/handoff`
 - `GET /api/interview/session/{id}/trace` (admin token required via `x-admin-token` or `Authorization: Bearer ...`)
+- `POST /api/conversations/start` (SuperV1 parallel entrypoint)
+- `POST /api/turn` (SuperV1 turn endpoint)
+- `GET /api/conversations/{id}/state` (SuperV1 structured checklist state)
+- `GET /api/conversations/{id}/turns` (SuperV1 chat turns)
+- `GET /api/conversations/{id}/audit` (SuperV1 admin audit, token required)
+
+## Cleanup Boundary (Current Phase)
+
+- No database schema migration changes.
+- No `/api/interview/*` request/response contract changes.
+- Legacy runtime modules (LangGraph orchestration + legacy planner runtime path) removed.
+
+## SuperV1 Runtime Requirement
+
+- Chat traffic is hard-cutover to SuperV1.
+- `/api/conversations/start` and `/api/turn` fail fast if Postgres is unreachable/auth-failed/schema-missing.
 
 ## Tests
 
@@ -54,4 +75,4 @@ If `DATABASE_URL` is not set, the app uses in-memory persistence for demo purpos
 npm test
 ```
 
-Covers completion rules, follow-up strategy behavior, preview/generation gating.
+Covers active turn routing, answer-turn state mutation, route contracts, and preview/generation gating.

@@ -147,7 +147,7 @@ function selectPrimaryModel(explicit?: string): string {
 
 async function withFallback<T>(
   opts: PromptOptions,
-  run: (modelName: string) => Promise<T>,
+  run: (modelName: string, abortSignal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const primaryName = selectPrimaryModel(opts.primaryModel);
   const fallbackName = opts.fallbackModel ?? DEFAULT_FALLBACK;
@@ -164,12 +164,13 @@ async function withFallback<T>(
   }
 
   const runWithTimeout = async (modelName: string): Promise<T> => {
-    return Promise.race([
-      run(modelName),
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(`Model timeout after ${MODEL_TIMEOUT_MS}ms: ${modelName}`)), MODEL_TIMEOUT_MS),
-      ),
-    ]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
+    try {
+      return await run(modelName, controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   try {
@@ -215,12 +216,13 @@ export async function generateModelText(opts: PromptOptions): Promise<string> {
   lastSystemPromptLength = opts.system.length;
   lastUserPromptLength = opts.prompt.length;
 
-  return withFallback(opts, async (modelName) => {
+  return withFallback(opts, async (modelName, abortSignal) => {
     const result = await generateText({
       model: getModelByName(modelName),
       system: opts.system,
       prompt: opts.prompt,
       temperature: 0.3,
+      abortSignal,
     });
 
     const input = result.usage?.inputTokens ?? estimateTokens(opts.system + opts.prompt);
@@ -240,13 +242,14 @@ export async function generateModelObject<T extends z.ZodTypeAny>(
   lastSystemPromptLength = opts.system.length;
   lastUserPromptLength = opts.prompt.length;
 
-  const object = await withFallback(opts, async (modelName) => {
+  const object = await withFallback(opts, async (modelName, abortSignal) => {
     const result = await generateObject({
       model: getModelByName(modelName),
       schema: opts.schema,
       system: opts.system,
       prompt: opts.prompt,
       temperature: 0.2,
+      abortSignal,
     });
 
     const input = result.usage?.inputTokens ?? estimateTokens(opts.system + opts.prompt);

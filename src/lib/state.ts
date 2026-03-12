@@ -70,6 +70,7 @@ export function createInitialState(interviewId?: string): InterviewState {
       phase: "interviewing",
       active_section_id: "company_understanding",
       pending_review_section_id: null,
+      pending_confirmation_slot_id: null,
       pending_interaction_module: null,
       next_question_slot_id: null,
       required_open_slot_ids: [],
@@ -294,6 +295,9 @@ export function createInitialState(interviewId?: string): InterviewState {
       planner_confidence: 0,
       preview_slots: [],
       confirmed_slot_ids: [],
+      last_turn_intent: null,
+      last_extraction_output: null,
+      last_contract_validation_result: null,
     },
 
     preview_projection: {

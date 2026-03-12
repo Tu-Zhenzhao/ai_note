@@ -123,3 +123,81 @@ create index if not exists idx_payload_patch_log_session_created
   on payload_patch_log(session_id, created_at desc);
 create index if not exists idx_checkpoint_snapshots_session_created
   on checkpoint_snapshots(session_id, created_at desc);
+
+-- SuperV1 normalized intake runtime tables
+create table if not exists conversations (
+  id text primary key,
+  template_id text not null,
+  status text not null,
+  active_section_id text,
+  current_question_id text,
+  created_at timestamptz not null,
+  updated_at timestamptz not null
+);
+
+create table if not exists checklist_templates (
+  id text primary key,
+  template_id text not null,
+  section_id text not null,
+  question_id text not null,
+  question_text text not null,
+  question_description text,
+  field_type text not null,
+  is_required boolean not null,
+  display_order int not null
+);
+
+create unique index if not exists idx_checklist_templates_template_question
+  on checklist_templates(template_id, question_id);
+create index if not exists idx_checklist_templates_template_order
+  on checklist_templates(template_id, display_order);
+
+create table if not exists turns (
+  id text primary key,
+  conversation_id text not null references conversations(id) on delete cascade,
+  role text not null,
+  message_text text not null,
+  created_at timestamptz not null
+);
+
+create index if not exists idx_turns_conversation_created
+  on turns(conversation_id, created_at desc);
+
+create table if not exists checklist_answers (
+  id text primary key,
+  conversation_id text not null references conversations(id) on delete cascade,
+  question_id text not null,
+  value_json jsonb,
+  status text not null,
+  confidence real,
+  evidence_text text,
+  source_turn_id text null references turns(id) on delete set null,
+  updated_at timestamptz not null
+);
+
+create unique index if not exists idx_checklist_answers_conversation_question
+  on checklist_answers(conversation_id, question_id);
+create index if not exists idx_checklist_answers_conversation_updated
+  on checklist_answers(conversation_id, updated_at desc);
+
+create table if not exists extraction_events (
+  id text primary key,
+  turn_id text not null references turns(id) on delete cascade,
+  raw_extraction_json jsonb not null,
+  accepted_updates_json jsonb not null,
+  rejected_updates_json jsonb not null,
+  created_at timestamptz not null
+);
+
+create index if not exists idx_extraction_events_turn_created
+  on extraction_events(turn_id, created_at desc);
+
+create table if not exists planner_events (
+  id text primary key,
+  turn_id text not null references turns(id) on delete cascade,
+  planner_result_json jsonb not null,
+  created_at timestamptz not null
+);
+
+create index if not exists idx_planner_events_turn_created
+  on planner_events(turn_id, created_at desc);
