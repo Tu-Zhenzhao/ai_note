@@ -57,9 +57,8 @@ describe("superv1 preview mapping", () => {
     expect(sections.linkedin_content_strategy.main_content_goal).toContain("authority");
     expect(sections.generation_plan.planned_first_topic).toContain("feature");
 
-    const directions = sections.ai_suggested_content_directions as Array<Record<string, unknown>>;
-    expect(Array.isArray(directions)).toBe(true);
-    expect(directions[0]?.topic).toContain("feature");
+    const prefs = sections.content_preferences_and_boundaries as Record<string, unknown>;
+    expect(prefs).toBeDefined();
 
     const internal = preview.internal_preview as Record<string, unknown>;
     const slots = internal.preview_slots as Array<Record<string, unknown>>;

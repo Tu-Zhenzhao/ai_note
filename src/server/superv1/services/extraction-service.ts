@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateModelObject } from "@/server/model/adapters";
 import { SuperV1ExtractionOutput, SuperV1TemplateQuestion, SuperV1Turn } from "@/server/superv1/types";
+import { superV1ExtractionSystemPrompt } from "@/server/prompts/superv1";
 
 const extractionSchema = z.object({
   filled_items: z.array(
@@ -74,13 +75,7 @@ export async function extractStructuredFacts(params: {
 
   try {
     return await generateModelObject({
-      system: [
-        "You extract checklist answers from a user turn.",
-        "Return strict JSON with filled_items, ambiguous_items, possible_items.",
-        "Only fill question_id values from the provided open questions list.",
-        "Do not invent facts or strengthen vague claims.",
-        "Attach evidence text for each filled item.",
-      ].join(" "),
+      system: superV1ExtractionSystemPrompt(),
       prompt: [
         `Active section: ${params.activeSectionId}`,
         `Latest user message: ${params.userMessage}`,
@@ -96,4 +91,3 @@ export async function extractStructuredFacts(params: {
     });
   }
 }
-

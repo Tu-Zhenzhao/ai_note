@@ -72,6 +72,14 @@ export class SuperV1TurnController implements TurnControllerV1 {
       conversationId: input.conversationId,
       turnId: userTurnId,
     } as const;
+    const emitPhaseProgress = (phase: "intent_classification" | "structured_extraction" | "response_generation", status: "start" | "done") => {
+      if (!input.onPhaseProgress) return;
+      try {
+        input.onPhaseProgress({ phase, status });
+      } catch {
+        // UI progress hook should never break runtime execution.
+      }
+    };
 
     traceRunStart(traceCtx, {
       message_len: input.userMessage.length,
@@ -196,6 +204,7 @@ export class SuperV1TurnController implements TurnControllerV1 {
           return !answer || answer.status === "empty" || answer.status === "needs_clarification";
         });
 
+        emitPhaseProgress("intent_classification", "start");
         const intent = await runStep({
           ctx: traceCtx,
           step: "classify_intent",
@@ -217,7 +226,11 @@ export class SuperV1TurnController implements TurnControllerV1 {
               previousAssistantQuestion,
             }),
         });
+        emitPhaseProgress("intent_classification", "done");
 
+        if (intent.intent === "answer_question") {
+          emitPhaseProgress("structured_extraction", "start");
+        }
         const extraction = await runStep({
           ctx: traceCtx,
           step: "extract_structured_facts",
@@ -308,6 +321,9 @@ export class SuperV1TurnController implements TurnControllerV1 {
                 })
               : answers,
         });
+        if (intent.intent === "answer_question") {
+          emitPhaseProgress("structured_extraction", "done");
+        }
 
         const acceptedFactTexts = summarizeAcceptedFacts(validated.accepted_updates);
 
@@ -368,6 +384,7 @@ export class SuperV1TurnController implements TurnControllerV1 {
           },
         });
 
+        emitPhaseProgress("response_generation", "start");
         const reply = await runStep({
           ctx: traceCtx,
           step: "compose_response",
@@ -389,6 +406,7 @@ export class SuperV1TurnController implements TurnControllerV1 {
               userMessage: input.userMessage,
             }),
         });
+        emitPhaseProgress("response_generation", "done");
 
         await runStep({
           ctx: traceCtx,

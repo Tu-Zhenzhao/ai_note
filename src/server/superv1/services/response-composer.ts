@@ -1,5 +1,6 @@
 import { generateModelText } from "@/server/model/adapters";
 import { SuperV1Intent, SuperV1PlannerResult } from "@/server/superv1/types";
+import { superV1ResponseSystemPrompt } from "@/server/prompts/superv1";
 
 function deterministicResponse(params: {
   intent: SuperV1Intent;
@@ -47,14 +48,7 @@ export async function composeResponse(params: {
   const nextQuestionText = params.planner.next_question_text;
   try {
     const response = await generateModelText({
-      system: [
-        "You are a concise strategist assistant in a checklist intake runtime.",
-        "Do not modify workflow logic in language output.",
-        "For answer_question: acknowledge accepted facts and ask the exact planner-selected next question.",
-        "For ask_for_help: provide concrete help options and invite one focused answer.",
-        "For other_discussion: clarify briefly and guide user back to planner-selected question.",
-        "Keep response concise.",
-      ].join(" "),
+      system: superV1ResponseSystemPrompt(),
       prompt: [
         `Intent: ${params.intent}`,
         `Language: ${params.language}`,
@@ -78,4 +72,3 @@ export async function composeResponse(params: {
     });
   }
 }
-

@@ -8,13 +8,14 @@ const REQUIRED_TABLES = [
   "public.turns",
   "public.extraction_events",
   "public.planner_events",
+  "public.turn_usage_events",
 ];
 
 export async function ensureSuperV1PostgresReady(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new SuperV1RuntimeError(
       "SUPERV1_DATABASE_URL_MISSING",
-      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002.",
+      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003.",
       500,
     );
   }
@@ -23,7 +24,7 @@ export async function ensureSuperV1PostgresReady(): Promise<void> {
   if (!pool) {
     throw new SuperV1RuntimeError(
       "SUPERV1_DATABASE_URL_MISSING",
-      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002.",
+      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003.",
       500,
     );
   }
@@ -41,7 +42,7 @@ export async function ensureSuperV1PostgresReady(): Promise<void> {
       const missingTables = missing.rows.map((row) => row.table_name);
       throw new SuperV1RuntimeError(
         "SUPERV1_SCHEMA_MISSING",
-        "SuperV1 schema is missing. Apply migrations 001 + 002 before starting runtime.",
+        "SuperV1 schema is missing. Apply migrations 001 + 002 + 003 before starting runtime.",
         500,
         { missing_tables: missingTables },
       );

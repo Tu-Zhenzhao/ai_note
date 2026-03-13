@@ -167,17 +167,43 @@ export function buildPreviewFromSuperV1State(state: SuperV1StateForPreview): Sup
   const firstTopic = normalizeText(getValue("cr_first_topic"));
   const firstFormat = normalizeText(getValue("cr_first_format"));
   const proofPlan = firstNonEmpty(getValue("ev_support"), getValue("cr_blockers"), getValue("ev_proof"));
+  const preferredTone = normalizeTextList(getValue("cpref_feel"));
+  const voiceAndStyle = [
+    ...normalizeTextList(getValue("cpref_tone_voice_style")),
+  ];
+  const avoidStyle = normalizeTextList(getValue("cdis_avoid_style"));
+  const boundaries = [
+    ...normalizeTextList(getValue("cb_not_said")),
+    ...normalizeTextList(getValue("cb_sensitive")),
+  ];
+  const concerns = normalizeTextList(getValue("uc_worries"));
 
-  const aiSuggestedDirections = firstTopic
-    ? [
-        {
-          topic: firstTopic,
-          format: firstFormat || topicsAndFormats[0] || "",
-          angle: mainContentGoal || "",
-          why_it_fits: firstNonEmpty(primaryAudience, attractionGoal),
-        },
-      ]
-    : [];
+  const suggestionTopic = firstNonEmpty(
+    firstTopic,
+    coreProblems[0] ? `How to solve ${coreProblems[0]}` : "",
+    mainContentGoal ? `${mainContentGoal} playbook` : "",
+  );
+  const suggestionFormat = firstNonEmpty(firstFormat, topicsAndFormats[0], "LinkedIn carousel");
+  const suggestionAngle = firstNonEmpty(
+    mainContentGoal,
+    attractionGoal,
+    primaryAudience ? `For ${primaryAudience}` : "",
+  );
+  const suggestionWhy = firstNonEmpty(
+    firstNonEmpty(primaryAudience, attractionGoal),
+    proofPlan,
+  );
+  const aiSuggestedDirections =
+    suggestionTopic
+      ? [
+          {
+            topic: suggestionTopic,
+            format: suggestionFormat,
+            angle: suggestionAngle,
+            why_it_fits: suggestionWhy,
+          },
+        ]
+      : [];
 
   return {
     sections: {
@@ -228,6 +254,21 @@ export function buildPreviewFromSuperV1State(state: SuperV1StateForPreview): Sup
         missing_proof_areas: missingProofAreas,
         evidence_confidence_level: evidenceConfidenceLevel,
         verification: buildVerificationIndicators(answers, ["ev_proof", "ev_assets", "cr_blockers"]),
+      },
+      content_preferences_and_boundaries: {
+        preferred_tone: preferredTone,
+        voice_and_style: voiceAndStyle,
+        avoid_style: avoidStyle,
+        boundaries,
+        concerns,
+        verification: buildVerificationIndicators(answers, [
+          "cpref_feel",
+          "cpref_tone_voice_style",
+          "cdis_avoid_style",
+          "cb_not_said",
+          "cb_sensitive",
+          "uc_worries",
+        ]),
       },
       ai_suggested_content_directions: aiSuggestedDirections,
       generation_plan: {

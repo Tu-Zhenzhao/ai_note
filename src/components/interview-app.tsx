@@ -1,10 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   ReviewSectionId,
 } from "@/components/interview-review-state";
+import {
+  AgentRuntimeProgress,
+  RuntimeProgressItem,
+  RuntimeProgressPhase,
+} from "@/components/agent-runtime-progress";
 import { useLanguage } from "@/lib/language-context";
 import { buildPreviewFromSuperV1State, SuperV1AnswerView } from "@/lib/superv1-preview";
 
@@ -111,6 +116,8 @@ type SuperV1TurnPayload = {
     active_section_id: string;
     unresolved_required_question_ids: string[];
   };
+  context_window?: ContextWindowData;
+  cumulative_tokens?: CumulativeTokenData;
 };
 
 type SuperV1ConversationEntry = {
@@ -129,6 +136,81 @@ type SuperV1TurnRecord = {
   message_text: string;
   created_at: string;
 };
+
+type SuperV1TurnStreamEvent =
+  | {
+      type: "phase";
+      phase: RuntimeProgressPhase;
+      status: "start" | "done";
+    }
+  | {
+      type: "pipeline_done";
+    }
+  | {
+      type: "reply_chunk";
+      chunk: string;
+    }
+  | {
+      type: "final";
+      payload: SuperV1TurnPayload;
+    }
+  | {
+      type: "error";
+      error: string;
+      code?: string;
+    };
+
+function isThematicBreakLine(line: string): boolean {
+  const compact = line.replace(/[\t ]+/g, "");
+  return /^[-—–－]{3,}$/.test(compact);
+}
+
+function extractTextContent(node: unknown): string {
+  if (typeof node === "string") return node;
+  if (Array.isArray(node)) return node.map(extractTextContent).join("");
+  if (!node || typeof node !== "object") return "";
+  const withProps = node as { props?: { children?: unknown } };
+  if (!withProps.props || !("children" in withProps.props)) return "";
+  return extractTextContent(withProps.props.children);
+}
+
+const MARKDOWN_RENDER_COMPONENTS = {
+  p: ({ children }: { children?: unknown }) => {
+    const text = extractTextContent(children).trim();
+    if (isThematicBreakLine(text)) {
+      return <hr />;
+    }
+    return <p>{children as ReactNode}</p>;
+  },
+};
+
+function normalizeChatMarkdown(value: string): string {
+  if (!value.includes("---")) return value;
+
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const output: string[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (!isThematicBreakLine(line)) {
+      output.push(line);
+      continue;
+    }
+
+    if (output.length > 0 && output[output.length - 1].trim() !== "") {
+      output.push("");
+    }
+
+    output.push("---");
+
+    const nextLine = lines[i + 1];
+    if (nextLine !== undefined && nextLine.trim() !== "") {
+      output.push("");
+    }
+  }
+
+  return output.join("\n");
+}
 
 function getReviewItems(t: (key: string, params?: Record<string, string>) => string): Record<ReviewSectionId, ReviewItemConfig[]> {
   return {
@@ -221,6 +303,13 @@ function Row({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+const RUNTIME_PHASE_LABELS: Record<RuntimeProgressPhase, string> = {
+  intent_classification: "Agent is processing your answer ...",
+  structured_extraction: "Agent is filling your ideas to your checklist ...",
+  response_generation: "Response generating ...",
+  done: "Done!",
+};
 
 // ─── Section Status Icon ──────────────────────────────────────────────────────
 
@@ -483,52 +572,37 @@ function getSectionConfigs(t: (key: string, params?: Record<string, string>) => 
       },
     },
     {
-      key: "ai_suggested_content_directions",
+      key: "content_preferences_and_boundaries",
       number: 5,
-      title: t("section_ai_suggested_content_directions"),
+      title: t("section_content_preferences_and_boundaries"),
       getSummary: (d: unknown) => {
-        const arr = d as Array<{ topic: string }>;
-        return Array.isArray(arr) && arr[0] ? arr[0].topic : "—";
+        const data = d as Record<string, unknown>;
+        return (
+          (data?.preferred_tone as string[] | undefined)?.[0] ||
+          (data?.voice_and_style as string[] | undefined)?.[0] ||
+          (data?.boundaries as string[] | undefined)?.[0] ||
+          "—"
+        );
       },
       renderDetails: (d: unknown) => {
-        const dirs = (Array.isArray(d) ? d : []) as Array<{
-          topic: string;
-          format: string;
-          angle: string;
-          why_it_fits: string;
-        }>;
+        const data = d as Record<string, unknown>;
         return (
           <>
-            {dirs.map((dir, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: i < dirs.length - 1 ? 10 : 0,
-                  paddingBottom: i < dirs.length - 1 ? 10 : 0,
-                  borderBottom:
-                    i < dirs.length - 1 ? "1px solid var(--color-line)" : "none",
-                }}
-              >
-                <div style={{ fontWeight: 500, fontSize: 13 }}>
-                  {t("label_direction")} {i + 1}: {dir.topic}
-                </div>
-                <div style={{ color: "var(--color-muted)", fontSize: 12, marginTop: 2 }}>
-                  {t("label_format")}: {dir.format} · {t("label_angle")}: {dir.angle}
-                </div>
-                {dir.why_it_fits && (
-                  <div
-                    style={{
-                      color: "var(--color-muted)",
-                      fontStyle: "italic",
-                      fontSize: 12,
-                      marginTop: 2,
-                    }}
-                  >
-                    {dir.why_it_fits}
-                  </div>
-                )}
-              </div>
-            ))}
+            {(data.preferred_tone as string[])?.length > 0 && (
+              <Row label={t("label_preferred_tone")} value={(data.preferred_tone as string[]).join(", ")} />
+            )}
+            {(data.voice_and_style as string[])?.length > 0 && (
+              <Row label={t("label_voice_and_style")} value={(data.voice_and_style as string[]).join(", ")} />
+            )}
+            {(data.avoid_style as string[])?.length > 0 && (
+              <Row label={t("label_avoid_style")} value={(data.avoid_style as string[]).join(", ")} />
+            )}
+            {(data.boundaries as string[])?.length > 0 && (
+              <Row label={t("label_boundaries")} value={(data.boundaries as string[]).join(", ")} />
+            )}
+            {(data.concerns as string[])?.length > 0 && (
+              <Row label={t("label_concerns")} value={(data.concerns as string[]).join(", ")} />
+            )}
           </>
         );
       },
@@ -1145,8 +1219,30 @@ export function InterviewApp() {
   const [conversationList, setConversationList] = useState<SuperV1ConversationEntry[]>([]);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
+  const [runtimeProgressItems, setRuntimeProgressItems] = useState<RuntimeProgressItem[]>([]);
+  const [streamingReply, setStreamingReply] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const progressTimersRef = useRef<number[]>([]);
+  const progressQueueRef = useRef<RuntimeProgressPhase[]>([]);
+  const activePhaseRef = useRef<RuntimeProgressPhase | null>(null);
+  const progressPhaseStartedAtRef = useRef<Partial<Record<RuntimeProgressPhase, number>>>({});
+  const progressPhaseDoneRequestedRef = useRef<Partial<Record<RuntimeProgressPhase, boolean>>>({});
+  const progressPhaseCompletingRef = useRef<Partial<Record<RuntimeProgressPhase, boolean>>>({});
+  const canRenderReplyRef = useRef(false);
+  const bufferedReplyRef = useRef("");
+  const replyRenderReadyResolversRef = useRef<Array<() => void>>([]);
+
+  const PHASE_MIN_RUNNING_MS = 700;
+  const PHASE_SHRINK_MS = 320;
+  const PHASE_CHECK_REVEAL_MS = 220;
+  const PHASE_CHECK_HOLD_MS = 650;
+  const PHASE_CHECK_HOLD_DONE_MS = 770;
+  const PHASE_EXIT_MS = 220;
+  const PHASE_INTER_GAP_MS = 140;
 
   // Set initial greeting based on language
   useEffect(() => {
@@ -1257,44 +1353,13 @@ export function InterviewApp() {
 
   // Session / conversation ID
   useEffect(() => {
-    const key = "superv1_conversation_id";
-    const init = async () => {
-      try {
-        const stored = window.localStorage.getItem(key);
-        if (stored) {
-          setSessionId(stored);
-          setSuperV1ConversationId(stored);
-          try {
-            await loadSuperV1Conversation(stored);
-            return;
-          } catch {
-            try {
-              window.localStorage.removeItem(key);
-            } catch {
-              // ignore localStorage errors
-            }
-          }
-        }
-      } catch {
-        // ignore localStorage errors
-      }
-      try {
-        const newId = await createSuperV1Conversation();
-        try {
-          window.localStorage.setItem(key, newId);
-        } catch {
-          // ignore localStorage errors
-        }
-        setSessionId(newId);
-        setSuperV1ConversationId(newId);
-        await fetchConversationList();
-      } catch {
-        setError("Failed to initialize SuperV1 conversation");
-        return;
-      }
-    };
-
-    init();
+    try {
+      window.localStorage.removeItem("superv1_conversation_id");
+    } catch {
+      // ignore localStorage errors
+    }
+    setSessionId("");
+    setSuperV1ConversationId(null);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-expand the section currently being discussed
@@ -1304,6 +1369,7 @@ export function InterviewApp() {
       audience_understanding: 1,
       linkedin_content_strategy: 2,
       evidence_and_proof_assets: 3,
+      content_preferences_and_boundaries: 4,
       generation_plan: 5,
     };
     const targetId = confirmingSectionId ?? activeSectionId;
@@ -1313,16 +1379,232 @@ export function InterviewApp() {
     }
   }, [currentSectionIndex, activeSectionId, confirmingSectionId]);
 
-  // Auto-scroll chat to latest message
+  function isNearBottom(el: HTMLDivElement, threshold = 56): boolean {
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distance <= threshold;
+  }
+
+  function scrollChatToBottom(behavior: ScrollBehavior = "auto") {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }
+
+  // Auto-scroll policy:
+  // - During loading/streaming/progress: stick to bottom to prevent jumpy phase transitions.
+  // - Otherwise: only autoscroll if user is already near bottom.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    const el = chatScrollRef.current;
+    if (!el) return;
+    if (loading || streamingReply || runtimeProgressItems.length > 0) {
+      scrollChatToBottom("auto");
+      return;
+    }
+    if (isNearBottom(el)) {
+      scrollChatToBottom("smooth");
+    }
+  }, [messages, loading, streamingReply, runtimeProgressItems.length]);
+
+  function clearProgressTimers() {
+    for (const timer of progressTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    progressTimersRef.current = [];
+    progressQueueRef.current = [];
+    activePhaseRef.current = null;
+    progressPhaseStartedAtRef.current = {};
+    progressPhaseDoneRequestedRef.current = {};
+    progressPhaseCompletingRef.current = {};
+    canRenderReplyRef.current = false;
+    bufferedReplyRef.current = "";
+    for (const resolve of replyRenderReadyResolversRef.current) resolve();
+    replyRenderReadyResolversRef.current = [];
+  }
+
+  function flushBufferedReply() {
+    if (!canRenderReplyRef.current) return;
+    setStreamingReply(bufferedReplyRef.current);
+  }
+
+  async function waitForReplyRenderReady(timeoutMs = 5000) {
+    if (canRenderReplyRef.current) return;
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(() => resolve(), timeoutMs);
+      progressTimersRef.current.push(timeout);
+      replyRenderReadyResolversRef.current.push(() => {
+        window.clearTimeout(timeout);
+        resolve();
+      });
+    });
+  }
+
+  function updateCurrentPhaseStatus(status: RuntimeProgressItem["status"]) {
+    const current = activePhaseRef.current;
+    if (!current) return;
+    setRuntimeProgressItems([{ phase: current, label: RUNTIME_PHASE_LABELS[current], status }]);
+  }
+
+  function maybeStartNextProgressPhase() {
+    if (activePhaseRef.current) return;
+    const next = progressQueueRef.current.shift();
+    if (!next) return;
+
+    activePhaseRef.current = next;
+    progressPhaseStartedAtRef.current[next] = Date.now();
+    progressPhaseCompletingRef.current[next] = false;
+    setRuntimeProgressItems([{ phase: next, label: RUNTIME_PHASE_LABELS[next], status: "running" }]);
+
+    if (progressPhaseDoneRequestedRef.current[next]) {
+      markProgressDoneAndRemove(next);
+    }
+  }
+
+  function enqueueProgressPhase(phase: RuntimeProgressPhase) {
+    if (activePhaseRef.current === phase || progressQueueRef.current.includes(phase)) return;
+    progressQueueRef.current.push(phase);
+    maybeStartNextProgressPhase();
+  }
+
+  function markProgressDoneAndRemove(phase: RuntimeProgressPhase) {
+    progressPhaseDoneRequestedRef.current[phase] = true;
+    if (activePhaseRef.current !== phase) return;
+    if (progressPhaseCompletingRef.current[phase]) return;
+    progressPhaseCompletingRef.current[phase] = true;
+
+    const startedAt = progressPhaseStartedAtRef.current[phase] ?? Date.now();
+    const elapsed = Date.now() - startedAt;
+    const waitToStartShrink = Math.max(0, PHASE_MIN_RUNNING_MS - elapsed);
+
+    const shrinkTimer = window.setTimeout(() => {
+      updateCurrentPhaseStatus("shrinking");
+
+      const checkedTimer = window.setTimeout(() => {
+        updateCurrentPhaseStatus("checked");
+        const holdMs = phase === "done" ? PHASE_CHECK_HOLD_DONE_MS : PHASE_CHECK_HOLD_MS;
+
+        const holdTimer = window.setTimeout(() => {
+          updateCurrentPhaseStatus("exiting");
+
+          const exitTimer = window.setTimeout(() => {
+            setRuntimeProgressItems([]);
+            if (phase === "done") {
+              canRenderReplyRef.current = true;
+              flushBufferedReply();
+              for (const resolve of replyRenderReadyResolversRef.current) resolve();
+              replyRenderReadyResolversRef.current = [];
+            }
+            activePhaseRef.current = null;
+            delete progressPhaseStartedAtRef.current[phase];
+            delete progressPhaseDoneRequestedRef.current[phase];
+            delete progressPhaseCompletingRef.current[phase];
+
+            const gapTimer = window.setTimeout(() => {
+              maybeStartNextProgressPhase();
+            }, PHASE_INTER_GAP_MS);
+            progressTimersRef.current.push(gapTimer);
+          }, PHASE_EXIT_MS);
+          progressTimersRef.current.push(exitTimer);
+        }, PHASE_CHECK_REVEAL_MS + holdMs);
+        progressTimersRef.current.push(holdTimer);
+      }, PHASE_SHRINK_MS);
+      progressTimersRef.current.push(checkedTimer);
+    }, waitToStartShrink);
+    progressTimersRef.current.push(shrinkTimer);
+  }
+
+  useEffect(
+    () => () => {
+      clearProgressTimers();
+    },
+    [],
+  );
+
+  async function streamTurn(payload: {
+    conversationId: string;
+    userMessage: string;
+    language: "en" | "zh";
+  }): Promise<SuperV1TurnPayload> {
+    const response = await fetch("/api/turn?stream=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      throw new Error(data.error ?? "Request failed");
+    }
+    if (!response.body) {
+      throw new Error("Streaming is not available");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalPayload: SuperV1TurnPayload | null = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const event = JSON.parse(trimmed) as SuperV1TurnStreamEvent;
+
+        if (event.type === "phase") {
+          if (event.status === "start") {
+            enqueueProgressPhase(event.phase);
+          } else {
+            markProgressDoneAndRemove(event.phase);
+          }
+          continue;
+        }
+
+        if (event.type === "pipeline_done") {
+          enqueueProgressPhase("done");
+          markProgressDoneAndRemove("done");
+          continue;
+        }
+
+        if (event.type === "reply_chunk") {
+          bufferedReplyRef.current = `${bufferedReplyRef.current}${event.chunk}`;
+          flushBufferedReply();
+          continue;
+        }
+
+        if (event.type === "final") {
+          finalPayload = event.payload;
+          continue;
+        }
+
+        if (event.type === "error") {
+          throw new Error(event.error || "Runtime stream failed");
+        }
+      }
+    }
+
+    await waitForReplyRenderReady();
+    flushBufferedReply();
+
+    if (!finalPayload) {
+      throw new Error("Turn stream ended before final payload");
+    }
+    return finalPayload;
+  }
 
   async function sendMessage(event?: FormEvent, overrideInput?: string) {
     event?.preventDefault();
     const userText = (overrideInput ?? input).trim();
-    if (!sessionId || !userText || loading) return;
+    if (!userText || loading || !!deletingSessionId) return;
 
+    clearProgressTimers();
+    setRuntimeProgressItems([]);
+    setStreamingReply("");
+    enqueueProgressPhase("intent_classification");
     setLoading(true);
     setError(null);
     setMessages((prev) => [...prev, { role: "user", content: userText }]);
@@ -1340,27 +1622,26 @@ export function InterviewApp() {
           // ignore localStorage errors
         }
       }
-      const response = await fetch("/api/turn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId,
-          userMessage: userText,
-          language: lang,
-        }),
+      const data = await streamTurn({
+        conversationId,
+        userMessage: userText,
+        language: lang,
       });
-      const data = (await response.json()) as SuperV1TurnPayload & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Request failed");
 
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
       setStructuredChoice(null);
       setStructuredOtherDraft("");
       setTaskType(data.intent.intent);
       applySuperV1State(data.state, data.intent.reason);
+      setContextWindow(data.context_window ?? null);
+      setCumulativeTokens(data.cumulative_tokens ?? null);
       setTurnCount((prev) => prev + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
+      clearProgressTimers();
+      setRuntimeProgressItems([]);
+      setStreamingReply("");
       setLoading(false);
     }
   }
@@ -1419,6 +1700,7 @@ export function InterviewApp() {
 
   async function handleSwitchSession(targetId: string) {
     try {
+      setSwitchingSessionId(targetId);
       setLoading(true);
       setError(null);
       try {
@@ -1433,6 +1715,7 @@ export function InterviewApp() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to switch session");
     } finally {
+      setSwitchingSessionId(null);
       setLoading(false);
     }
   }
@@ -1440,6 +1723,7 @@ export function InterviewApp() {
   async function handleDeleteSession(targetId: string) {
     if (!confirm(t("delete_confirm", { id: targetId.slice(0, 8) }))) return;
     try {
+      setDeletingSessionId(targetId);
       setLoading(true);
       setError(null);
       const response = await fetch("/api/conversations/delete", {
@@ -1453,13 +1737,37 @@ export function InterviewApp() {
       }
 
       if (targetId === sessionId) {
-        await handleNewSession();
+        try {
+          window.localStorage.removeItem("superv1_conversation_id");
+        } catch {
+          // ignore localStorage errors
+        }
+        setSessionId("");
+        setSuperV1ConversationId(null);
+        setMessages([{ role: "assistant", content: t("initial_greeting") }]);
+        setPreview(null);
+        setCompletionState(null);
+        setCurrentSectionIndex(0);
+        setActiveSectionId("company_understanding");
+        setCurrentSectionName(t("section_company_understanding"));
+        setContextWindow(null);
+        setCumulativeTokens(null);
+        setTurnCount(0);
+        setExpandedSection(0);
+        setReviewState(null);
+        setReviewedSections({});
+        setConfirmingSectionId(null);
+        setWorkflowState(null);
+        setStructuredChoice(null);
+        setStructuredOtherDraft("");
+        setTaskType(null);
       } else {
         await fetchConversationList();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete session");
     } finally {
+      setDeletingSessionId(null);
       setLoading(false);
     }
   }
@@ -1502,6 +1810,12 @@ export function InterviewApp() {
   const activeReviewValue = activeReviewItem && activeReviewData
     ? valueToDisplay(activeReviewData[activeReviewItem.fieldKey])
     : "";
+  const sessionBadgeLabel = sessionId
+    ? t("session_badge", { id: sessionId.slice(0, 8) })
+    : t("session_none");
+  const aiSuggestedDirections =
+    (sections?.ai_suggested_content_directions as Array<Record<string, unknown>> | undefined) ?? [];
+  const aiSuggestionsReady = level === "completed" || level === "complete";
 
   async function handleConfirmReviewStep() {
     if (!reviewState || !activeReviewItem) return;
@@ -1683,6 +1997,19 @@ export function InterviewApp() {
           >
             {t("app_title")}
           </span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "1px solid var(--color-line)",
+              background: sessionId ? "var(--color-accent-soft)" : "#fff",
+              color: sessionId ? "var(--color-accent)" : "var(--color-muted)",
+            }}
+          >
+            {sessionBadgeLabel}
+          </span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button
               onClick={() => setLang(lang === "en" ? "zh" : "en")}
@@ -1721,6 +2048,7 @@ export function InterviewApp() {
             </button>
             <button
               onClick={handleNewSession}
+              disabled={loading || !!deletingSessionId || !!switchingSessionId}
               style={{
                 background: "var(--color-accent)",
                 color: "#fff",
@@ -1821,6 +2149,7 @@ export function InterviewApp() {
                       {!isCurrent && (
                         <button
                           onClick={() => handleSwitchSession(entry.id)}
+                          disabled={loading || !!deletingSessionId || !!switchingSessionId}
                           style={{
                             background: "var(--color-elev)",
                             color: "var(--color-text)",
@@ -1837,6 +2166,7 @@ export function InterviewApp() {
                       )}
                       <button
                         onClick={() => handleDeleteSession(entry.id)}
+                        disabled={loading || !!deletingSessionId || !!switchingSessionId}
                         style={{
                           background: "transparent",
                           color: "#c53030",
@@ -2008,6 +2338,7 @@ export function InterviewApp() {
 
             {/* Messages area */}
             <div
+              ref={chatScrollRef}
               style={{
                 flex: 1,
                 overflowY: "auto",
@@ -2057,7 +2388,9 @@ export function InterviewApp() {
                     }}
                   >
                     {msg.role === "assistant" ? (
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown components={MARKDOWN_RENDER_COMPONENTS}>
+                        {normalizeChatMarkdown(msg.content)}
+                      </ReactMarkdown>
                     ) : (
                       <span style={{ whiteSpace: "pre-wrap" }}>{msg.content}</span>
                     )}
@@ -2081,30 +2414,29 @@ export function InterviewApp() {
                   >
                     {t("chat_sender")}
                   </div>
-                  <div
-                    style={{
-                      borderRadius: "16px 16px 16px 4px",
-                      padding: "12px 16px",
-                      background: "var(--color-chip)",
-                      display: "flex",
-                      gap: 5,
-                      alignItems: "center",
-                    }}
-                  >
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: "var(--color-muted)",
-                          display: "inline-block",
-                          animation: `dot-bounce 1.2s ease-in-out ${i * 0.18}s infinite`,
-                        }}
-                      />
-                    ))}
-                  </div>
+                  {runtimeProgressItems.length > 0 && (
+                    <div style={{ paddingLeft: 2 }}>
+                      <AgentRuntimeProgress items={runtimeProgressItems} />
+                    </div>
+                  )}
+                  {streamingReply && (
+                    <div
+                      className="chat-markdown"
+                      style={{
+                        marginTop: runtimeProgressItems.length > 0 ? 10 : 4,
+                        borderRadius: "16px 16px 16px 4px",
+                        padding: "10px 14px",
+                        background: "var(--color-chip)",
+                        color: "var(--color-text)",
+                        fontSize: 14,
+                        lineHeight: 1.65,
+                      }}
+                    >
+                      <ReactMarkdown components={MARKDOWN_RENDER_COMPONENTS}>
+                        {normalizeChatMarkdown(streamingReply)}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -2186,7 +2518,7 @@ export function InterviewApp() {
                         key={option.id}
                         type="button"
                         onClick={() => sendMessage(undefined, option.value)}
-                        disabled={loading}
+                        disabled={loading || !!deletingSessionId || !!switchingSessionId}
                         style={{
                           background: "var(--color-chip)",
                           color: "var(--color-text)",
@@ -2210,7 +2542,7 @@ export function InterviewApp() {
                       <button
                         type="button"
                         onClick={() => sendMessage(undefined, structuredOtherDraft)}
-                        disabled={loading || !structuredOtherDraft.trim()}
+                        disabled={loading || !!deletingSessionId || !!switchingSessionId || !structuredOtherDraft.trim()}
                         style={{
                           background: "var(--color-cta)",
                           color: "#fff",
@@ -2244,7 +2576,7 @@ export function InterviewApp() {
                 />
                 <button
                   type="submit"
-                  disabled={loading || !sessionId || !input.trim()}
+                  disabled={loading || !!deletingSessionId || !!switchingSessionId || !input.trim()}
                   style={{
                     background: "var(--color-cta)",
                     color: "#fff",
@@ -2451,6 +2783,89 @@ export function InterviewApp() {
                   />
                 );
               })}
+              <div
+                style={{
+                  borderRadius: "var(--radius-m)",
+                  background: aiSuggestionsReady ? "#FFF9EC" : "transparent",
+                  border: aiSuggestionsReady
+                    ? "1.5px solid #d4a017"
+                    : "1px solid var(--color-line)",
+                  marginBottom: 8,
+                  padding: "10px 14px",
+                  boxShadow: aiSuggestionsReady
+                    ? "0 0 0 1px rgba(212,160,23,0.15), 0 0 20px rgba(212,160,23,0.18)"
+                    : "none",
+                  animation: aiSuggestionsReady ? "review-breathe 1.8s ease-in-out infinite" : "none",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginBottom: 6,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                    7. {t("section_ai_suggested_content_directions")}
+                  </span>
+                  {aiSuggestionsReady && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: "#d4a017",
+                        color: "#fff",
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                      }}
+                    >
+                      {t("chat_live")}
+                    </span>
+                  )}
+                </div>
+                {!aiSuggestionsReady ? (
+                  <div style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                    {t("ai_suggestion_pending_note")}
+                  </div>
+                ) : aiSuggestedDirections.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--color-muted)" }}>
+                    —
+                  </div>
+                ) : (
+                  aiSuggestedDirections.map((dir, i) => (
+                    <div
+                      key={`ai-direction-${i}`}
+                      style={{
+                        marginBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
+                        paddingBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
+                        borderBottom:
+                          i < aiSuggestedDirections.length - 1 ? "1px solid var(--color-line)" : "none",
+                      }}
+                    >
+                      <div style={{ fontWeight: 500, fontSize: 13 }}>
+                        {t("label_direction")} {i + 1}: {String(dir.topic ?? "")}
+                      </div>
+                      <div style={{ color: "var(--color-muted)", fontSize: 12, marginTop: 2 }}>
+                        {t("label_format")}: {String(dir.format ?? "—")} · {t("label_angle")}: {String(dir.angle ?? "—")}
+                      </div>
+                      {String(dir.why_it_fits ?? "").trim() && (
+                        <div
+                          style={{
+                            color: "var(--color-muted)",
+                            fontStyle: "italic",
+                            fontSize: 12,
+                            marginTop: 2,
+                          }}
+                        >
+                          {String(dir.why_it_fits ?? "")}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             {/* Compact context window strip */}
@@ -2463,6 +2878,53 @@ export function InterviewApp() {
           </div>
         </div>
       </div>
+      {(deletingSessionId || switchingSessionId) && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(240, 237, 229, 0.72)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              minWidth: 280,
+              maxWidth: 380,
+              borderRadius: 16,
+              border: "1px solid var(--color-line)",
+              background: "#fff",
+              boxShadow: "var(--shadow-1)",
+              padding: "20px 22px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                border: "2px solid rgba(212, 160, 23, 0.22)",
+                borderTopColor: "#d4a017",
+                animation: "runtime-spinner-spin 900ms linear infinite",
+              }}
+            />
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text)" }}>
+              {deletingSessionId ? t("deleting_title") : t("switching_title")}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--color-muted)", textAlign: "center" }}>
+              {deletingSessionId ? t("deleting_hint") : t("switching_hint")}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

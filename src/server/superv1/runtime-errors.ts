@@ -63,7 +63,7 @@ export function normalizeSuperV1Error(error: unknown): SuperV1RuntimeError {
   ) {
     return new SuperV1RuntimeError(
       "SUPERV1_DATABASE_URL_MISSING",
-      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002.",
+      "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003.",
       500,
     );
   }
@@ -111,7 +111,7 @@ export function normalizeSuperV1Error(error: unknown): SuperV1RuntimeError {
   ) {
     return new SuperV1RuntimeError(
       "SUPERV1_SCHEMA_MISSING",
-      "SuperV1 schema is missing. Apply migrations 001 + 002 before starting runtime.",
+      "SuperV1 schema is missing. Apply migrations 001 + 002 + 003 before starting runtime.",
       500,
       code ? { upstream_code: code } : undefined,
     );

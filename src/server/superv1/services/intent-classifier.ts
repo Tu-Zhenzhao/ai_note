@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateModelObject } from "@/server/model/adapters";
 import { SuperV1IntentResult, SuperV1Turn } from "@/server/superv1/types";
+import { superV1IntentSystemPrompt } from "@/server/prompts/superv1";
 
 const schema = z.object({
   intent: z.enum(["answer_question", "ask_for_help", "other_discussion"]),
@@ -65,14 +66,7 @@ export async function classifyIntent(params: {
 }): Promise<SuperV1IntentResult> {
   try {
     return await generateModelObject({
-      system: [
-        "You classify user turns for a checklist-driven interview runtime.",
-        "Return strict JSON with intent/confidence/reason only.",
-        "Allowed intents: answer_question, ask_for_help, other_discussion.",
-        "Prefer answer_question when user is plausibly answering the active question.",
-        "Use ask_for_help only for explicit request for suggestions/help to answer.",
-        "Use other_discussion for clarification-only or side discussion turns.",
-      ].join(" "),
+      system: superV1IntentSystemPrompt(),
       prompt: [
         `Current section: ${params.currentSectionId}`,
         `Previous assistant question: ${params.previousAssistantQuestion || "none"}`,
@@ -85,4 +79,3 @@ export async function classifyIntent(params: {
     return deterministicFallback(params.userMessage);
   }
 }
-

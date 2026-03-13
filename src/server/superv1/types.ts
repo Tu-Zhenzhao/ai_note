@@ -1,4 +1,8 @@
 export type SuperV1Intent = "answer_question" | "ask_for_help" | "other_discussion";
+export type SuperV1RuntimePhase =
+  | "intent_classification"
+  | "structured_extraction"
+  | "response_generation";
 export type SuperV1AnswerStatus = "empty" | "filled" | "needs_clarification" | "confirmed";
 export type SuperV1FieldType = "text" | "number" | "boolean" | "select" | "multi_select";
 
@@ -152,4 +156,3 @@ export interface SuperV1TurnResult {
   intent: SuperV1IntentResult;
   planner_result: SuperV1PlannerResult;
 }
-

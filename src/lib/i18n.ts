@@ -27,6 +27,12 @@ const translations: Record<Language, Record<string, string>> = {
     btn_delete: "Delete",
     delete_confirm: "Delete session {id}…? This cannot be undone.",
     session_resume: "Resuming your session...",
+    session_none: "No Session",
+    session_badge: "Session {id}",
+    deleting_title: "Deleting session...",
+    deleting_hint: "Please wait. Do not perform other actions.",
+    switching_title: "Switching session...",
+    switching_hint: "Loading selected session. Please wait.",
 
     // Send
     btn_send: "Send",
@@ -69,6 +75,7 @@ const translations: Record<Language, Record<string, string>> = {
     review_no_content: "No content yet.",
     review_suggest_hint: "Suggest change saves your text directly (no AI rewrite in this step).",
     review_auto_reply: "Looks good — I'm happy with {section}. Let's continue.",
+    ai_suggestion_pending_note: "AI suggestion will provide after finished all 6 sections!",
 
     // Structured choice
     structured_title: "Quick selection",
@@ -109,6 +116,11 @@ const translations: Record<Language, Record<string, string>> = {
     label_supporting_assets: "Supporting assets",
     label_confidence: "Confidence",
     label_missing_proof_areas: "Missing proof areas",
+    label_preferred_tone: "Preferred tone",
+    label_voice_and_style: "Voice and style",
+    label_avoid_style: "Avoided style",
+    label_boundaries: "Boundaries",
+    label_concerns: "Concerns",
 
     // Row labels (AI Suggested Directions)
     label_direction: "Direction",
@@ -186,6 +198,12 @@ const translations: Record<Language, Record<string, string>> = {
     btn_delete: "删除",
     delete_confirm: "确认删除会话 {id}…？此操作不可撤销。",
     session_resume: "正在恢复您的会话...",
+    session_none: "无会话",
+    session_badge: "会话 {id}",
+    deleting_title: "正在删除会话...",
+    deleting_hint: "请稍候，暂时不要进行其他操作。",
+    switching_title: "正在切换会话...",
+    switching_hint: "正在加载所选会话，请稍候。",
 
     btn_send: "发送",
     input_placeholder: "输入您的回答…（回车发送，Shift+回车换行）",
@@ -222,6 +240,7 @@ const translations: Record<Language, Record<string, string>> = {
     review_no_content: "暂无内容。",
     review_suggest_hint: "修改建议将直接保存您的文字（此步骤不会进行 AI 改写）。",
     review_auto_reply: "没问题——我对「{section}」很满意，继续吧。",
+    ai_suggestion_pending_note: "完成前 6 个板块后，AI 将提供建议方向！",
 
     structured_title: "快速选择",
     btn_submit: "提交",
@@ -255,6 +274,11 @@ const translations: Record<Language, Record<string, string>> = {
     label_supporting_assets: "支撑素材",
     label_confidence: "信心程度",
     label_missing_proof_areas: "缺失的证据领域",
+    label_preferred_tone: "偏好语气",
+    label_voice_and_style: "语调与风格",
+    label_avoid_style: "避免风格",
+    label_boundaries: "内容边界",
+    label_concerns: "顾虑",
 
     label_direction: "方向",
     label_format: "格式",

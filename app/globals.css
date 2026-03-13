@@ -147,6 +147,178 @@ textarea::placeholder {
   }
 }
 
+@keyframes runtime-pill-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes runtime-text-blink {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes runtime-check-pop {
+  0% {
+    transform: scale(0.65);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes runtime-pill-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes runtime-spinner-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.runtime-progress-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.runtime-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  min-height: 28px;
+  padding: 7px 12px;
+  width: fit-content;
+  max-width: 480px;
+  overflow: hidden;
+  animation: runtime-pill-in 180ms ease-out;
+  transition:
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    min-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    gap 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 260ms ease,
+    background-color 260ms ease,
+    color 260ms ease;
+}
+
+.runtime-pill-text {
+  white-space: nowrap;
+  transition: opacity 170ms ease;
+}
+
+.runtime-pill-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.runtime-pill-check {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  opacity: 0;
+  transform: scale(0.65);
+  transition: opacity 170ms ease;
+}
+
+.runtime-pill-spinner {
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(212, 160, 23, 0.28);
+  border-top-color: #d4a017;
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.runtime-pill.is-running .runtime-pill-text {
+  animation: runtime-text-blink 1.15s ease-in-out infinite;
+}
+
+.runtime-pill.is-running .runtime-pill-spinner {
+  opacity: 1;
+  animation: runtime-spinner-spin 900ms linear infinite;
+}
+
+.runtime-pill.is-shrinking .runtime-pill-spinner,
+.runtime-pill.is-checked .runtime-pill-spinner,
+.runtime-pill.is-exiting .runtime-pill-spinner {
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.runtime-pill.is-shrinking,
+.runtime-pill.is-checked,
+.runtime-pill.is-exiting {
+  min-width: 28px;
+  max-width: 28px;
+  padding-left: 6px;
+  padding-right: 6px;
+  gap: 0;
+  border-color: rgba(13, 123, 100, 0.35);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.runtime-pill.is-shrinking .runtime-pill-text,
+.runtime-pill.is-checked .runtime-pill-text,
+.runtime-pill.is-exiting .runtime-pill-text {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+}
+
+.runtime-pill.is-checked .runtime-pill-check,
+.runtime-pill.is-exiting .runtime-pill-check {
+  opacity: 1;
+}
+
+.runtime-pill.is-checked .runtime-pill-check {
+  animation: runtime-check-pop 220ms ease-out;
+}
+
+.runtime-pill.is-exiting {
+  animation: runtime-pill-out 220ms ease-in-out forwards;
+}
+
 /* ── Chat markdown rendering ── */
 .chat-markdown p {
   margin: 0 0 8px 0;

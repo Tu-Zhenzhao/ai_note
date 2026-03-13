@@ -1,15 +1,41 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { generateModelObjectMock, generateModelTextMock, ensureSuperV1PostgresReadyMock } = vi.hoisted(() => ({
+const {
+  generateModelObjectMock,
+  generateModelTextMock,
+  getContextWindowInfoMock,
+  getLastTokenUsageMock,
+  ensureSuperV1PostgresReadyMock,
+} = vi.hoisted(() => ({
   generateModelObjectMock: vi.fn(),
   generateModelTextMock: vi.fn(),
+  getContextWindowInfoMock: vi.fn(() => ({
+    modelUsed: "mock-model",
+    provider: "mock",
+    maxContextTokens: 100000,
+    usedTokens: 3200,
+    utilizationPercent: 3.2,
+    breakdown: {
+      systemPromptTokens: 500,
+      userPromptTokens: 700,
+      completionTokens: 2000,
+    },
+    estimatedCostUsd: 0.0042,
+  })),
+  getLastTokenUsageMock: vi.fn(() => ({
+    promptTokens: 1200,
+    completionTokens: 2000,
+    totalTokens: 3200,
+  })),
   ensureSuperV1PostgresReadyMock: vi.fn(),
 }));
 
 vi.mock("@/server/model/adapters", () => ({
   generateModelObject: generateModelObjectMock,
   generateModelText: generateModelTextMock,
+  getContextWindowInfo: getContextWindowInfoMock,
+  getLastTokenUsage: getLastTokenUsageMock,
 }));
 
 vi.mock("@/server/superv1/db-preflight", () => ({
@@ -20,6 +46,8 @@ describe("superv1 API routes", () => {
   beforeEach(() => {
     generateModelObjectMock.mockReset();
     generateModelTextMock.mockReset();
+    getContextWindowInfoMock.mockClear();
+    getLastTokenUsageMock.mockClear();
     ensureSuperV1PostgresReadyMock.mockReset();
     ensureSuperV1PostgresReadyMock.mockResolvedValue(undefined);
   });
