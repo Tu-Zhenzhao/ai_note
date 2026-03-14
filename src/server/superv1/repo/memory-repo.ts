@@ -1,4 +1,5 @@
 import {
+  SuperV1AiDirectionsRecord,
   SuperV1ChecklistAnswer,
   SuperV1Conversation,
   SuperV1ExtractionEvent,
@@ -15,6 +16,7 @@ interface SuperV1Store {
   turns: Map<string, SuperV1Turn[]>;
   extractionEvents: Map<string, SuperV1ExtractionEvent[]>;
   plannerEvents: Map<string, SuperV1PlannerEvent[]>;
+  aiDirections: Map<string, SuperV1AiDirectionsRecord>;
 }
 
 const globalStore = globalThis as unknown as { __superv1Store?: SuperV1Store };
@@ -28,6 +30,7 @@ function getStore(): SuperV1Store {
       turns: new Map(),
       extractionEvents: new Map(),
       plannerEvents: new Map(),
+      aiDirections: new Map(),
     };
   }
   return globalStore.__superv1Store;
@@ -73,6 +76,7 @@ export class MemorySuperV1Repository implements SuperV1Repository {
     this.store.turns.delete(conversationId);
     this.store.extractionEvents.delete(conversationId);
     this.store.plannerEvents.delete(conversationId);
+    this.store.aiDirections.delete(conversationId);
   }
 
   async ensureChecklistAnswers(conversationId: string, templateId: string): Promise<void> {
@@ -148,5 +152,13 @@ export class MemorySuperV1Repository implements SuperV1Repository {
   async listPlannerEvents(conversationId: string, limit = 100): Promise<SuperV1PlannerEvent[]> {
     const events = this.store.plannerEvents.get(conversationId) ?? [];
     return events.slice(-limit);
+  }
+
+  async getAiSuggestedDirections(conversationId: string): Promise<SuperV1AiDirectionsRecord | null> {
+    return this.store.aiDirections.get(conversationId) ?? null;
+  }
+
+  async upsertAiSuggestedDirections(record: SuperV1AiDirectionsRecord): Promise<void> {
+    this.store.aiDirections.set(record.conversation_id, record);
   }
 }

@@ -48,6 +48,41 @@ export interface SuperV1Turn {
   created_at: string;
 }
 
+export interface SuperV1AiSuggestedDirection {
+  id: "dir_1" | "dir_2" | "dir_3";
+  title: string;
+  target_audience: string;
+  core_insight: string;
+  content_angle: string;
+  suggested_formats: string[];
+  example_hook: string;
+  proof_to_use: string[];
+  risk_boundary_check: string;
+  why_fit: string;
+  execution_difficulty: "Low" | "Medium" | "High";
+}
+
+export interface SuperV1AiRecommendationSummary {
+  best_starting_direction_id: "dir_1" | "dir_2" | "dir_3";
+  reason: string;
+  first_week_plan: string[];
+}
+
+export interface SuperV1AiSuggestedDirectionsPayload {
+  ai_suggested_directions: SuperV1AiSuggestedDirection[];
+  recommendation_summary: SuperV1AiRecommendationSummary;
+}
+
+export interface SuperV1AiDirectionsRecord {
+  conversation_id: string;
+  language: "en" | "zh";
+  payload_json: SuperV1AiSuggestedDirectionsPayload;
+  source_turn_id: string | null;
+  source_answers_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SuperV1ExtractionItem {
   question_id: string;
   value: unknown;
@@ -143,6 +178,7 @@ export interface SuperV1StateView {
     confidence: number | null;
     evidence_text: string | null;
   }>;
+  ai_suggested_directions: SuperV1AiSuggestedDirectionsPayload | null;
 }
 
 export interface SuperV1TurnResult {

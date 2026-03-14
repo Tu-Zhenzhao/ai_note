@@ -41,6 +41,8 @@ export async function withConversationLock<T>(
   } finally {
     try {
       await client.query("select pg_advisory_unlock(hashtext($1))", [conversationId]);
+    } catch {
+      // If the connection dropped, unlock is no longer possible on this session.
     } finally {
       client.release();
     }

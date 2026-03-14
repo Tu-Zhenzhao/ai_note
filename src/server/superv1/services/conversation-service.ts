@@ -69,6 +69,7 @@ export async function startSuperV1Conversation(): Promise<{
     conversation,
     questions: template,
     answers,
+    aiSuggestedDirections: null,
   });
   return { conversationId, state };
 }
@@ -81,10 +82,12 @@ export async function getSuperV1ConversationState(conversationId: string) {
     repo.listTemplateQuestions(conversation.template_id),
     repo.listAnswers(conversationId),
   ]);
+  const directions = await repo.getAiSuggestedDirections(conversationId);
   return deriveStateView({
     conversation,
     questions,
     answers,
+    aiSuggestedDirections: directions?.payload_json ?? null,
   });
 }
 

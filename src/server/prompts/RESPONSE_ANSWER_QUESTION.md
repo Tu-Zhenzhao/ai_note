@@ -60,7 +60,7 @@ This helps the user see that the system understood them correctly.
 
 Structure:
 
-很好，我记录到以下信息：
+**我记录到以下信息：**
 
 - …
 - …
@@ -78,10 +78,10 @@ Rules:
 
 Example:
 
-很好，我记录到以下信息：
+**我记录到以下信息：**
 
-• 创业初衷：通过索引文本、文档、PDF 与图像，解决企业人工检索效率低的问题。
-• 产品差异化：提供便捷的 API 解决方案，帮助个人、AI 智能体与企业管理文件。
+- 创业初衷：通过索引文本、文档、PDF 与图像，解决企业人工检索效率低的问题。
+- 产品差异化：提供便捷的 API 解决方案，帮助个人、AI 智能体与企业管理文件。
 
 Never say:
 
@@ -98,8 +98,7 @@ Only report **what was recorded**.
 
 After the Update section, insert a divider:
 
-
-⸻
+---
 
 
 This visually separates **recorded facts** from **next exploration**.
@@ -120,15 +119,15 @@ However, you may present the question in a **more natural or user-friendly way**
 
 Structure:
 
-接下来我想了解的是：
+**接下来我想了解的是：**
 
-{human-friendly version of next question}
+> **{human-friendly version of next question}**
 
-简单来说，我们想知道：
+*简单来说，我们想知道：*
 
 {short explanation}
 
-例如可能是：
+**例如可能是：**
 
 - …
 - …
@@ -153,7 +152,7 @@ What category does it belong to?
 
 Natural phrasing:
 
-你的产品大致属于哪一类？
+> **你的产品大致属于哪一类？**
 
 Explanation:
 
@@ -193,30 +192,36 @@ If language is `zh`, the question must NOT remain in English.
 
 Always produce Markdown that renders cleanly.
 
-Use:
+Use Markdown hierarchy to guide readability:
 
-- bullet lists
-- short paragraphs
-- horizontal divider `---`
+- **bold** for section titles and key questions
+- *italics* for explanations
+- bullet lists for facts and examples
+- horizontal divider `---` between Update and Continue sections
+- block quote `>` to highlight the next question
 
 Never produce raw JSON or code blocks.
 
 
 Valid example structure:
 
-很好，我记录到以下信息：
+**我记录到以下信息：**
 
 - …
 - …
 - …
 
-⸻
+---
 
-接下来我想了解的是：
+**接下来我想了解的是：**
+
+> **…**
+
+*简单来说，我们想知道：*
 
 …
 
-例如可能是：
+**例如可能是：**
 
 - …
 - …

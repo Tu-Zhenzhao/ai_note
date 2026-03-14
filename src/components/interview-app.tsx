@@ -62,6 +62,13 @@ type ReviewState = {
   submitting: boolean;
 };
 
+type SuperV1ProgressStats = {
+  total: number;
+  filled: number;
+  confirmed: number;
+  ratio: number;
+};
+
 type WorkflowStatePayload = {
   phase?: string;
   active_section_id?: string;
@@ -97,6 +104,26 @@ type SuperV1StatePayload = {
     needs_clarification: number;
   };
   answers: SuperV1AnswerView[];
+  ai_suggested_directions?: {
+    ai_suggested_directions: Array<{
+      id: "dir_1" | "dir_2" | "dir_3";
+      title: string;
+      target_audience: string;
+      core_insight: string;
+      content_angle: string;
+      suggested_formats: string[];
+      example_hook: string;
+      proof_to_use: string[];
+      risk_boundary_check: string;
+      why_fit: string;
+      execution_difficulty: "Low" | "Medium" | "High";
+    }>;
+    recommendation_summary: {
+      best_starting_direction_id: "dir_1" | "dir_2" | "dir_3";
+      reason: string;
+      first_week_plan: string[];
+    };
+  } | null;
 };
 
 type SuperV1TurnPayload = {
@@ -314,13 +341,11 @@ const RUNTIME_PHASE_LABELS: Record<RuntimeProgressPhase, string> = {
 // ─── Section Status Icon ──────────────────────────────────────────────────────
 
 function SectionStatusIcon({
-  hasData,
-  verifications,
+  isCompleted,
   isActive,
   isConfirming,
 }: {
-  hasData: boolean;
-  verifications?: VerificationIndicator[];
+  isCompleted: boolean;
   isActive: boolean;
   isConfirming: boolean;
 }) {
@@ -352,7 +377,7 @@ function SectionStatusIcon({
       </svg>
     );
   }
-  if (hasData && verifications?.every((v) => v.state === "confirmed_by_user")) {
+  if (isCompleted) {
     return (
       <svg
         width="16"
@@ -372,20 +397,6 @@ function SectionStatusIcon({
       </svg>
     );
   }
-  if (hasData) {
-    return (
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        style={{ flexShrink: 0 }}
-      >
-        <circle cx="12" cy="12" r="8" stroke="#C2BFB6" strokeWidth="1.5" />
-        <path d="M12 4a8 8 0 0 1 0 16z" fill="#C2BFB6" />
-      </svg>
-    );
-  }
   return (
     <svg
       width="16"
@@ -394,7 +405,8 @@ function SectionStatusIcon({
       fill="none"
       style={{ flexShrink: 0 }}
     >
-      <circle cx="12" cy="12" r="8" stroke="#E5E2DA" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="8" stroke="#C2BFB6" strokeWidth="1.5" />
+      <path d="M12 4a8 8 0 0 1 0 16z" fill="#C2BFB6" />
     </svg>
   );
 }
@@ -644,6 +656,7 @@ function AccordionSection({
   config,
   data,
   verifications,
+  isCompleted,
   isActive,
   isConfirming,
   isExpanded,
@@ -653,6 +666,7 @@ function AccordionSection({
   config: SectionConfig;
   data: unknown;
   verifications?: VerificationIndicator[];
+  isCompleted: boolean;
   isActive: boolean;
   isConfirming: boolean;
   isExpanded: boolean;
@@ -703,8 +717,7 @@ function AccordionSection({
       >
         <span style={{ marginTop: 2 }}>
           <SectionStatusIcon
-            hasData={hasData}
-            verifications={verifications}
+            isCompleted={isCompleted}
             isActive={isActive}
             isConfirming={isConfirming}
           />
@@ -1223,6 +1236,12 @@ export function InterviewApp() {
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const [runtimeProgressItems, setRuntimeProgressItems] = useState<RuntimeProgressItem[]>([]);
   const [streamingReply, setStreamingReply] = useState("");
+  const [progressStats, setProgressStats] = useState<SuperV1ProgressStats>({
+    total: 0,
+    filled: 0,
+    confirmed: 0,
+    ratio: 0,
+  });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1295,6 +1314,12 @@ export function InterviewApp() {
     setCompletionState({
       completion_level: state.status,
       completion_score: Math.round(state.completion.ratio * 100),
+    });
+    setProgressStats({
+      total: state.completion.total,
+      filled: state.completion.filled,
+      confirmed: state.completion.confirmed,
+      ratio: state.completion.ratio,
     });
     setPreview(buildPreviewFromSuperV1State(state));
   }
@@ -1789,9 +1814,12 @@ export function InterviewApp() {
       })
       .filter(Boolean);
   })();
-  const score = (completionState?.completion_score as number) ?? 0;
+  const score = Math.round(progressStats.ratio * 100);
   const level = (completionState?.completion_level as string) ?? "incomplete";
-  const verCoverage = Math.round(((completionState?.verification_coverage as number) ?? 0) * 100);
+  const verCoverage =
+    progressStats.total > 0
+      ? Math.round((progressStats.confirmed / progressStats.total) * 100)
+      : 0;
 
   const levelBadge: Record<string, { bg: string; text: string }> = {
     incomplete: { bg: "var(--color-chip)", text: "var(--color-muted)" },
@@ -1815,6 +1843,8 @@ export function InterviewApp() {
     : t("session_none");
   const aiSuggestedDirections =
     (sections?.ai_suggested_content_directions as Array<Record<string, unknown>> | undefined) ?? [];
+  const aiSuggestionRecommendation =
+    (sections?.ai_suggested_recommendation as Record<string, unknown> | undefined) ?? null;
   const aiSuggestionsReady = level === "completed" || level === "complete";
 
   async function handleConfirmReviewStep() {
@@ -2762,6 +2792,10 @@ export function InterviewApp() {
                   isConfirming: confirmingSectionId === config.key,
                   isActive: !confirmingSectionId && !isStructuredHelp && activeSectionId === config.key,
                 };
+                const isSectionCompleted =
+                  level === "completed" ||
+                  level === "complete" ||
+                  idx < currentSectionIndex;
                 const verifications = Array.isArray(sectionData)
                   ? undefined
                   : (sectionData as Record<string, unknown>)
@@ -2779,6 +2813,7 @@ export function InterviewApp() {
                     onToggle={() =>
                       setExpandedSection(expandedSection === idx ? -1 : idx)
                     }
+                    isCompleted={isSectionCompleted}
                     t={t}
                   />
                 );
@@ -2834,36 +2869,65 @@ export function InterviewApp() {
                     —
                   </div>
                 ) : (
-                  aiSuggestedDirections.map((dir, i) => (
-                    <div
-                      key={`ai-direction-${i}`}
-                      style={{
-                        marginBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
-                        paddingBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
-                        borderBottom:
-                          i < aiSuggestedDirections.length - 1 ? "1px solid var(--color-line)" : "none",
-                      }}
-                    >
-                      <div style={{ fontWeight: 500, fontSize: 13 }}>
-                        {t("label_direction")} {i + 1}: {String(dir.topic ?? "")}
-                      </div>
-                      <div style={{ color: "var(--color-muted)", fontSize: 12, marginTop: 2 }}>
-                        {t("label_format")}: {String(dir.format ?? "—")} · {t("label_angle")}: {String(dir.angle ?? "—")}
-                      </div>
-                      {String(dir.why_it_fits ?? "").trim() && (
-                        <div
-                          style={{
-                            color: "var(--color-muted)",
-                            fontStyle: "italic",
-                            fontSize: 12,
-                            marginTop: 2,
-                          }}
-                        >
-                          {String(dir.why_it_fits ?? "")}
+                  <>
+                    {aiSuggestedDirections.map((dir, i) => (
+                      <div
+                        key={`ai-direction-${i}`}
+                        style={{
+                          marginBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
+                          paddingBottom: i < aiSuggestedDirections.length - 1 ? 10 : 0,
+                          borderBottom:
+                            i < aiSuggestedDirections.length - 1 ? "1px solid var(--color-line)" : "none",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {t("label_direction")} {i + 1}: {String(dir.title ?? "—")}
                         </div>
-                      )}
-                    </div>
-                  ))
+                        <div style={{ marginTop: 4 }}>
+                          <Row label={t("label_target_audience")} value={String(dir.target_audience ?? "—")} />
+                          <Row label={t("label_core_insight")} value={String(dir.core_insight ?? "—")} />
+                          <Row label={t("label_angle")} value={String(dir.angle ?? "—")} />
+                          <Row
+                            label={t("label_format")}
+                            value={Array.isArray(dir.suggested_formats)
+                              ? (dir.suggested_formats as string[]).join(" / ")
+                              : String(dir.suggested_formats ?? "—")}
+                          />
+                          <Row label={t("label_example_hook")} value={String(dir.example_hook ?? "—")} />
+                          <Row
+                            label={t("label_proof_to_use")}
+                            value={Array.isArray(dir.proof_to_use)
+                              ? (dir.proof_to_use as string[]).join(" / ")
+                              : String(dir.proof_to_use ?? "—")}
+                          />
+                          <Row label={t("label_risk_boundary_check")} value={String(dir.risk_boundary_check ?? "—")} />
+                          <Row label={t("label_why_fit")} value={String(dir.why_it_fits ?? "—")} />
+                          <Row label={t("label_execution_difficulty")} value={String(dir.execution_difficulty ?? "—")} />
+                        </div>
+                      </div>
+                    ))}
+                    {aiSuggestionRecommendation && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          paddingTop: 10,
+                          borderTop: "1px dashed rgba(212,160,23,0.45)",
+                        }}
+                      >
+                        <Row
+                          label={t("label_best_starting_direction")}
+                          value={String(aiSuggestionRecommendation.best_starting_direction_id ?? "—")}
+                        />
+                        <Row label={t("label_reason")} value={String(aiSuggestionRecommendation.reason ?? "—")} />
+                        {Array.isArray(aiSuggestionRecommendation.first_week_plan) && (
+                          <Row
+                            label={t("label_first_week_plan")}
+                            value={(aiSuggestionRecommendation.first_week_plan as string[]).join(" → ")}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

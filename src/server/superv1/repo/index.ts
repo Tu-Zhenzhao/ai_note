@@ -15,7 +15,7 @@ export function getSuperV1Repository(): SuperV1Repository {
       } else {
         throw new SuperV1RuntimeError(
           "SUPERV1_DATABASE_URL_MISSING",
-          "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003.",
+          "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003 + 004.",
           500,
         );
       }
@@ -24,7 +24,7 @@ export function getSuperV1Repository(): SuperV1Repository {
       if (!pool) {
         throw new SuperV1RuntimeError(
           "SUPERV1_DATABASE_URL_MISSING",
-          "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003.",
+          "SuperV1 requires DATABASE_URL. Configure Postgres and rerun migrations 001 + 002 + 003 + 004.",
           500,
         );
       }

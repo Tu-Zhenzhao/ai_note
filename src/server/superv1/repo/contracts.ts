@@ -1,4 +1,5 @@
 import {
+  SuperV1AiDirectionsRecord,
   SuperV1ChecklistAnswer,
   SuperV1Conversation,
   SuperV1ExtractionEvent,
@@ -30,4 +31,7 @@ export interface SuperV1Repository {
 
   addPlannerEvent(event: SuperV1PlannerEvent): Promise<void>;
   listPlannerEvents(conversationId: string, limit?: number): Promise<SuperV1PlannerEvent[]>;
+
+  getAiSuggestedDirections(conversationId: string): Promise<SuperV1AiDirectionsRecord | null>;
+  upsertAiSuggestedDirections(record: SuperV1AiDirectionsRecord): Promise<void>;
 }

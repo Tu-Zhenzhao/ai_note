@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { getInterviewRepository } from "@/server/repo";
+import { getPoolStats, resetPool } from "@/server/repo/db";
 import { TurnControllerV1, SuperV1TurnInput } from "@/server/superv1/contracts";
 import { withConversationLock } from "@/server/superv1/lock";
 import { getSuperV1Repository } from "@/server/superv1/repo";
@@ -15,7 +16,13 @@ import { extractStructuredFacts } from "@/server/superv1/services/extraction-ser
 import { validateExtraction } from "@/server/superv1/services/extraction-validator";
 import { classifyIntent } from "@/server/superv1/services/intent-classifier";
 import { composeResponse } from "@/server/superv1/services/response-composer";
-import { SuperV1ExtractionOutput, SuperV1TurnResult, SuperV1ValidatedExtraction } from "@/server/superv1/types";
+import { generateAiSuggestedDirections } from "@/server/superv1/services/ai-directions-generator";
+import {
+  SuperV1AiDirectionsRecord,
+  SuperV1ExtractionOutput,
+  SuperV1TurnResult,
+  SuperV1ValidatedExtraction,
+} from "@/server/superv1/types";
 import {
   runStep,
   traceRunEnd,
@@ -60,6 +67,37 @@ const EMPTY_VALIDATED: SuperV1ValidatedExtraction = {
   rejected_updates: [],
   ambiguous_items: [],
 };
+
+function latestAnswersUpdatedAt(answers: { updated_at: string }[]): string | null {
+  if (answers.length === 0) return null;
+  return answers.reduce((latest, answer) => {
+    if (!latest) return answer.updated_at;
+    return answer.updated_at > latest ? answer.updated_at : latest;
+  }, "");
+}
+
+function isTransientDbConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as {
+    message?: string;
+    code?: string;
+    cause?: { message?: string; code?: string };
+  };
+  const message = (err.message ?? err.cause?.message ?? "").toLowerCase();
+  const code = (err.code ?? err.cause?.code ?? "").toUpperCase();
+
+  if (code === "ECONNRESET" || code === "ETIMEDOUT" || code === "57P01") return true;
+  return (
+    message.includes("connection terminated unexpectedly") ||
+    message.includes("not queryable") ||
+    message.includes("connection terminated") ||
+    message.includes("connection error")
+  );
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
 
 export class SuperV1TurnController implements TurnControllerV1 {
   async handleUserTurn(input: SuperV1TurnInput): Promise<SuperV1TurnResult> {
@@ -384,6 +422,54 @@ export class SuperV1TurnController implements TurnControllerV1 {
           },
         });
 
+        const aiDirectionsRecord = await runStep({
+          ctx: traceCtx,
+          step: "generate_ai_suggested_directions",
+          required: false,
+          inputSummary: {
+            conversation_status: updatedConversation.status,
+            next_question_id: planner.next_question_id,
+          },
+          successSummary: (value) => ({
+            generated: !!value,
+            direction_count: value?.payload_json.ai_suggested_directions.length ?? 0,
+          }),
+          skipSummary: {
+            reason: "ai_suggested_directions_generation_failed",
+          },
+          fn: async (): Promise<SuperV1AiDirectionsRecord | null> => {
+            if (planner.next_question_id) return null;
+
+            const sourceAnswersUpdatedAt = latestAnswersUpdatedAt(nextAnswers);
+            const existing = await repo.getAiSuggestedDirections(input.conversationId);
+            const canReuse =
+              existing &&
+              existing.language === language &&
+              existing.source_answers_updated_at === sourceAnswersUpdatedAt;
+            if (canReuse) return existing;
+
+            const turnsForDirections = await repo.listTurns(input.conversationId);
+            const payload = await generateAiSuggestedDirections({
+              language,
+              turns: turnsForDirections,
+              questions,
+              answers: nextAnswers,
+            });
+            const now = new Date().toISOString();
+            const record: SuperV1AiDirectionsRecord = {
+              conversation_id: input.conversationId,
+              language,
+              payload_json: payload,
+              source_turn_id: userTurnId,
+              source_answers_updated_at: sourceAnswersUpdatedAt,
+              created_at: existing?.created_at ?? now,
+              updated_at: now,
+            };
+            await repo.upsertAiSuggestedDirections(record);
+            return record;
+          },
+        });
+
         emitPhaseProgress("response_generation", "start");
         const reply = await runStep({
           ctx: traceCtx,
@@ -467,6 +553,7 @@ export class SuperV1TurnController implements TurnControllerV1 {
               conversation: updatedConversation,
               questions,
               answers: nextAnswers,
+              aiSuggestedDirections: aiDirectionsRecord?.payload_json ?? null,
             }),
         });
 
@@ -521,6 +608,20 @@ export class SuperV1TurnController implements TurnControllerV1 {
 
       return locked.result;
     } catch (error) {
+      const retryAttempted = Boolean((input as SuperV1TurnInput & { __dbRetryAttempted?: boolean }).__dbRetryAttempted);
+      if (!retryAttempted && isTransientDbConnectionError(error)) {
+        const poolStats = getPoolStats();
+        console.warn(
+          `[superv1] transient DB connection error detected; resetting pool and retrying turn once for conversation ${input.conversationId}`,
+          poolStats ?? {},
+        );
+        await resetPool();
+        await sleep(180);
+        return this.handleUserTurn({
+          ...input,
+          __dbRetryAttempted: true,
+        } as SuperV1TurnInput);
+      }
       if (!lockAcquired) {
         traceStepError(traceCtx, "acquire_lock", Date.now() - lockStartedAt, error, {
           conversation_id: input.conversationId,

@@ -1,4 +1,5 @@
 import {
+  SuperV1AiDirectionsRecord,
   SuperV1ChecklistAnswer,
   SuperV1Conversation,
   SuperV1ExtractionEvent,
@@ -249,5 +250,39 @@ export class PostgresSuperV1Repository implements SuperV1Repository {
       [conversationId, limit],
     );
     return (result.rows as SuperV1PlannerEvent[]).reverse();
+  }
+
+  async getAiSuggestedDirections(conversationId: string): Promise<SuperV1AiDirectionsRecord | null> {
+    const pool = this.ensurePool();
+    const result = await pool.query(
+      "select * from ai_suggested_directions where conversation_id = $1",
+      [conversationId],
+    );
+    return (result.rows[0] as SuperV1AiDirectionsRecord | undefined) ?? null;
+  }
+
+  async upsertAiSuggestedDirections(record: SuperV1AiDirectionsRecord): Promise<void> {
+    const pool = this.ensurePool();
+    await pool.query(
+      `insert into ai_suggested_directions
+       (conversation_id, language, payload_json, source_turn_id, source_answers_updated_at, created_at, updated_at)
+       values ($1,$2,$3::jsonb,$4,$5,$6,$7)
+       on conflict (conversation_id)
+       do update set
+         language = excluded.language,
+         payload_json = excluded.payload_json,
+         source_turn_id = excluded.source_turn_id,
+         source_answers_updated_at = excluded.source_answers_updated_at,
+         updated_at = excluded.updated_at`,
+      [
+        record.conversation_id,
+        record.language,
+        toJsonbParam(record.payload_json),
+        record.source_turn_id,
+        record.source_answers_updated_at,
+        record.created_at,
+        record.updated_at,
+      ],
+    );
   }
 }

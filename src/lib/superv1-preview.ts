@@ -15,6 +15,26 @@ export interface SuperV1AnswerView {
 
 export interface SuperV1StateForPreview {
   answers: SuperV1AnswerView[];
+  ai_suggested_directions?: {
+    ai_suggested_directions?: Array<{
+      id?: "dir_1" | "dir_2" | "dir_3";
+      title?: string;
+      target_audience?: string;
+      core_insight?: string;
+      content_angle?: string;
+      suggested_formats?: string[];
+      example_hook?: string;
+      proof_to_use?: string[];
+      risk_boundary_check?: string;
+      why_fit?: string;
+      execution_difficulty?: "Low" | "Medium" | "High";
+    }>;
+    recommendation_summary?: {
+      best_starting_direction_id?: "dir_1" | "dir_2" | "dir_3";
+      reason?: string;
+      first_week_plan?: string[];
+    };
+  } | null;
 }
 
 type SuperV1Preview = Record<string, unknown>;
@@ -178,32 +198,23 @@ export function buildPreviewFromSuperV1State(state: SuperV1StateForPreview): Sup
   ];
   const concerns = normalizeTextList(getValue("uc_worries"));
 
-  const suggestionTopic = firstNonEmpty(
-    firstTopic,
-    coreProblems[0] ? `How to solve ${coreProblems[0]}` : "",
-    mainContentGoal ? `${mainContentGoal} playbook` : "",
-  );
-  const suggestionFormat = firstNonEmpty(firstFormat, topicsAndFormats[0], "LinkedIn carousel");
-  const suggestionAngle = firstNonEmpty(
-    mainContentGoal,
-    attractionGoal,
-    primaryAudience ? `For ${primaryAudience}` : "",
-  );
-  const suggestionWhy = firstNonEmpty(
-    firstNonEmpty(primaryAudience, attractionGoal),
-    proofPlan,
-  );
-  const aiSuggestedDirections =
-    suggestionTopic
-      ? [
-          {
-            topic: suggestionTopic,
-            format: suggestionFormat,
-            angle: suggestionAngle,
-            why_it_fits: suggestionWhy,
-          },
-        ]
-      : [];
+  const aiDirectionsFromState = state.ai_suggested_directions?.ai_suggested_directions ?? [];
+  const aiSuggestedDirections = aiDirectionsFromState
+    .map((direction) => ({
+      id: direction.id ?? "",
+      title: direction.title ?? "",
+      target_audience: direction.target_audience ?? "",
+      core_insight: direction.core_insight ?? "",
+      angle: direction.content_angle ?? "",
+      suggested_formats: direction.suggested_formats ?? [],
+      example_hook: direction.example_hook ?? "",
+      proof_to_use: direction.proof_to_use ?? [],
+      risk_boundary_check: direction.risk_boundary_check ?? "",
+      why_it_fits: direction.why_fit ?? "",
+      execution_difficulty: direction.execution_difficulty ?? "Medium",
+    }))
+    .filter((direction) => direction.title || direction.angle || direction.example_hook);
+  const aiRecommendation = state.ai_suggested_directions?.recommendation_summary ?? null;
 
   return {
     sections: {
@@ -279,6 +290,7 @@ export function buildPreviewFromSuperV1State(state: SuperV1StateForPreview): Sup
         proof_plan: proofPlan,
         verification: buildVerificationIndicators(answers, ["cr_first_topic", "cr_first_format", "cr_blockers"]),
       },
+      ai_suggested_recommendation: aiRecommendation,
     },
     internal_preview: {
       preview_slots: state.answers.map((answer) => ({

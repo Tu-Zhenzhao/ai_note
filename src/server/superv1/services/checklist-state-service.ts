@@ -1,4 +1,5 @@
 import {
+  SuperV1AiSuggestedDirectionsPayload,
   SuperV1ChecklistAnswer,
   SuperV1Conversation,
   SuperV1ExtractionItem,
@@ -164,6 +165,7 @@ export function deriveStateView(params: {
   conversation: SuperV1Conversation;
   questions: SuperV1TemplateQuestion[];
   answers: SuperV1ChecklistAnswer[];
+  aiSuggestedDirections?: SuperV1AiSuggestedDirectionsPayload | null;
 }): SuperV1StateView {
   const orderedQuestions = sortTemplateQuestions(params.questions);
   const answerMap = answerByQuestionId(params.answers);
@@ -217,6 +219,7 @@ export function deriveStateView(params: {
         evidence_text: answer?.evidence_text ?? null,
       };
     }),
+    ai_suggested_directions: params.aiSuggestedDirections ?? null,
   };
 }
 
@@ -228,4 +231,3 @@ export function summarizeAcceptedFacts(items: SuperV1ExtractionItem[]): string[]
     })
     .slice(0, 3);
 }
-
