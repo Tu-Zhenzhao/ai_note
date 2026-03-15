@@ -4,6 +4,7 @@ import {
   SuperV1Conversation,
   SuperV1ExtractionEvent,
   SuperV1PlannerEvent,
+  SuperV1RoutingEvent,
   SuperV1TemplateQuestion,
   SuperV1Turn,
 } from "@/server/superv1/types";
@@ -57,14 +58,16 @@ export class PostgresSuperV1Repository implements SuperV1Repository {
     const pool = this.ensurePool();
     await pool.query(
       `insert into conversations
-       (id, template_id, status, active_section_id, current_question_id, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7)`,
+       (id, template_id, status, active_section_id, current_question_id, interaction_mode, help_context_json, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
       [
         conversation.id,
         conversation.template_id,
         conversation.status,
         conversation.active_section_id,
         conversation.current_question_id,
+        conversation.interaction_mode,
+        toJsonbParam(conversation.help_context_json),
         conversation.created_at,
         conversation.updated_at,
       ],
@@ -85,7 +88,9 @@ export class PostgresSuperV1Repository implements SuperV1Repository {
            status = $3,
            active_section_id = $4,
            current_question_id = $5,
-           updated_at = $6
+           interaction_mode = $6,
+           help_context_json = $7::jsonb,
+           updated_at = $8
        where id = $1`,
       [
         conversation.id,
@@ -93,6 +98,8 @@ export class PostgresSuperV1Repository implements SuperV1Repository {
         conversation.status,
         conversation.active_section_id,
         conversation.current_question_id,
+        conversation.interaction_mode,
+        toJsonbParam(conversation.help_context_json),
         conversation.updated_at,
       ],
     );
@@ -250,6 +257,38 @@ export class PostgresSuperV1Repository implements SuperV1Repository {
       [conversationId, limit],
     );
     return (result.rows as SuperV1PlannerEvent[]).reverse();
+  }
+
+  async addRoutingEvent(event: SuperV1RoutingEvent): Promise<void> {
+    const pool = this.ensurePool();
+    await pool.query(
+      `insert into routing_events
+       (id, conversation_id, turn_id, intent, mode_before, mode_after, detected_help_selection_json, decision_reason, created_at)
+       values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
+      [
+        event.id,
+        event.conversation_id,
+        event.turn_id,
+        event.intent,
+        event.mode_before,
+        event.mode_after,
+        toJsonbParam(event.detected_help_selection_json),
+        event.decision_reason,
+        event.created_at,
+      ],
+    );
+  }
+
+  async listRoutingEvents(conversationId: string, limit = 100): Promise<SuperV1RoutingEvent[]> {
+    const pool = this.ensurePool();
+    const result = await pool.query(
+      `select * from routing_events
+       where conversation_id = $1
+       order by created_at desc
+       limit $2`,
+      [conversationId, limit],
+    );
+    return (result.rows as SuperV1RoutingEvent[]).reverse();
   }
 
   async getAiSuggestedDirections(conversationId: string): Promise<SuperV1AiDirectionsRecord | null> {

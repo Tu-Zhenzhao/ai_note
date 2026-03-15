@@ -87,11 +87,24 @@ type StructuredChoicePayload = {
   other_placeholder?: string;
 };
 
+type SuperV1InteractionMode = "interviewing" | "help_open";
+
+type SuperV1HelpContextPayload = {
+  question_id: string | null;
+  question_text: string | null;
+  help_menu_version: number;
+  last_help_options: string[];
+  last_selected_option?: string | null;
+  opened_at_turn_id?: string | null;
+};
+
 type SuperV1StatePayload = {
   conversationId: string;
   status: "active" | "completed";
   activeSectionId: string;
   currentQuestionId: string | null;
+  interaction_mode?: SuperV1InteractionMode;
+  help_context?: SuperV1HelpContextPayload | null;
   sections: Array<{
     section_id: string;
     open_required_question_ids: string[];
@@ -142,6 +155,20 @@ type SuperV1TurnPayload = {
   planner_result: {
     active_section_id: string;
     unresolved_required_question_ids: string[];
+  };
+  interaction?: {
+    mode_before: SuperV1InteractionMode;
+    mode_after: SuperV1InteractionMode;
+    route_reason: string;
+    help_transition: "none" | "enter_help" | "stay_help" | "exit_help";
+    detected_help_selection: {
+      detected: boolean;
+      selection_type: "none" | "numeric" | "option_phrase" | "near_match";
+      selected_option_index: number | null;
+      selected_option_text: string | null;
+      confidence: number;
+      raw_message: string;
+    } | null;
   };
   context_window?: ContextWindowData;
   cumulative_tokens?: CumulativeTokenData;
@@ -1228,6 +1255,8 @@ export function InterviewApp() {
   const [structuredChoice, setStructuredChoice] = useState<StructuredChoicePayload | null>(null);
   const [structuredOtherDraft, setStructuredOtherDraft] = useState("");
   const [taskType, setTaskType] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<SuperV1InteractionMode>("interviewing");
+  const [routeReason, setRouteReason] = useState<string | null>(null);
   const [superV1ConversationId, setSuperV1ConversationId] = useState<string | null>(null);
   const [conversationList, setConversationList] = useState<SuperV1ConversationEntry[]>([]);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
@@ -1291,7 +1320,14 @@ export function InterviewApp() {
     return id;
   }
 
-  function applySuperV1State(state: SuperV1StatePayload, reason?: string) {
+  function applySuperV1State(
+    state: SuperV1StatePayload,
+    reason?: string,
+    interaction?: SuperV1TurnPayload["interaction"],
+  ) {
+    const nextInteractionMode = state.interaction_mode ?? interaction?.mode_after ?? "interviewing";
+    setInteractionMode(nextInteractionMode);
+    setRouteReason(interaction?.route_reason ?? reason ?? null);
     setActiveSectionId(state.activeSectionId);
     setCurrentSectionName(getSectionName(state.activeSectionId));
     const nextIndex = state.sections.findIndex(
@@ -1301,14 +1337,14 @@ export function InterviewApp() {
       setCurrentSectionIndex(nextIndex);
     }
     setWorkflowState({
-      phase: "interviewing",
+      phase: nextInteractionMode === "help_open" ? "structured_help_selection" : "interviewing",
       active_section_id: state.activeSectionId,
       required_open_slot_ids:
         state.sections.find((section) => section.section_id === state.activeSectionId)
           ?.open_required_question_ids ?? [],
       transition_allowed: false,
-      last_transition_reason: reason ?? null,
-      pending_interaction_module: "none",
+      last_transition_reason: interaction?.route_reason ?? reason ?? null,
+      pending_interaction_module: nextInteractionMode === "help_open" ? "select_help_option" : "none",
       pending_review_section_id: null,
     });
     setCompletionState({
@@ -1354,7 +1390,7 @@ export function InterviewApp() {
     setContextWindow(null);
     setCumulativeTokens(null);
     setTurnCount(turns.length);
-    applySuperV1State(statePayload.state as SuperV1StatePayload);
+    applySuperV1State(statePayload.state as SuperV1StatePayload, undefined, undefined);
   }
 
   async function fetchConversationList() {
@@ -1657,7 +1693,7 @@ export function InterviewApp() {
       setStructuredChoice(null);
       setStructuredOtherDraft("");
       setTaskType(data.intent.intent);
-      applySuperV1State(data.state, data.intent.reason);
+      applySuperV1State(data.state, data.intent.reason, data.interaction);
       setContextWindow(data.context_window ?? null);
       setCumulativeTokens(data.cumulative_tokens ?? null);
       setTurnCount((prev) => prev + 1);
@@ -1713,6 +1749,8 @@ export function InterviewApp() {
     setStructuredChoice(null);
     setStructuredOtherDraft("");
     setTaskType(null);
+    setInteractionMode("interviewing");
+    setRouteReason(null);
     setError(null);
     if (showSessionPanel) {
       await fetchConversationList();
@@ -2364,7 +2402,35 @@ export function InterviewApp() {
                       : t("task_exploring")}
                 </span>
               )}
+              {interactionMode === "help_open" && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background: "#FFF4D6",
+                    color: "#8a6200",
+                    border: "1px solid rgba(212,160,23,0.45)",
+                  }}
+                  title="Persistent help subflow is active for the current question."
+                >
+                  HELP MODE
+                </span>
+              )}
             </div>
+            {routeReason && (
+              <div
+                style={{
+                  padding: "6px 24px 0 24px",
+                  fontSize: 11,
+                  color: "var(--color-muted)",
+                  borderBottom: "1px solid var(--color-border, #eee)",
+                }}
+              >
+                Route: {routeReason}
+              </div>
+            )}
 
             {/* Messages area */}
             <div

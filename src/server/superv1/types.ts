@@ -1,4 +1,5 @@
 export type SuperV1Intent = "answer_question" | "ask_for_help" | "other_discussion";
+export type SuperV1InteractionMode = "interviewing" | "help_open";
 export type SuperV1RuntimePhase =
   | "intent_classification"
   | "structured_extraction"
@@ -12,8 +13,19 @@ export interface SuperV1Conversation {
   status: "active" | "completed";
   active_section_id: string;
   current_question_id: string | null;
+  interaction_mode: SuperV1InteractionMode;
+  help_context_json: SuperV1HelpContext | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SuperV1HelpContext {
+  question_id: string | null;
+  question_text: string | null;
+  help_menu_version: number;
+  last_help_options: string[];
+  last_selected_option?: string | null;
+  opened_at_turn_id?: string | null;
 }
 
 export interface SuperV1TemplateQuestion {
@@ -144,6 +156,35 @@ export interface SuperV1PlannerEvent {
   created_at: string;
 }
 
+export interface SuperV1DetectedHelpSelection {
+  detected: boolean;
+  selection_type: "none" | "numeric" | "option_phrase" | "near_match";
+  selected_option_index: number | null;
+  selected_option_text: string | null;
+  confidence: number;
+  raw_message: string;
+}
+
+export interface SuperV1RoutingMeta {
+  mode_before: SuperV1InteractionMode;
+  mode_after: SuperV1InteractionMode;
+  route_reason: string;
+  help_transition: "none" | "enter_help" | "stay_help" | "exit_help";
+  detected_help_selection: SuperV1DetectedHelpSelection | null;
+}
+
+export interface SuperV1RoutingEvent {
+  id: string;
+  conversation_id: string;
+  turn_id: string;
+  intent: SuperV1Intent;
+  mode_before: SuperV1InteractionMode;
+  mode_after: SuperV1InteractionMode;
+  detected_help_selection_json: SuperV1DetectedHelpSelection | null;
+  decision_reason: string;
+  created_at: string;
+}
+
 export interface SuperV1IntentResult {
   intent: SuperV1Intent;
   confidence: number;
@@ -156,6 +197,8 @@ export interface SuperV1StateView {
   status: "active" | "completed";
   activeSectionId: string;
   currentQuestionId: string | null;
+  interaction_mode: SuperV1InteractionMode;
+  help_context: SuperV1HelpContext | null;
   completion: {
     total: number;
     filled: number;
@@ -191,4 +234,5 @@ export interface SuperV1TurnResult {
   };
   intent: SuperV1IntentResult;
   planner_result: SuperV1PlannerResult;
+  interaction: SuperV1RoutingMeta;
 }

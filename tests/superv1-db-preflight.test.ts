@@ -72,14 +72,35 @@ describe("superv1 db preflight", () => {
     });
   });
 
+  test("throws SUPERV1_SCHEMA_MISSING when migration 005 columns are absent", async () => {
+    process.env.DATABASE_URL = "postgres://example";
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: false }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: true }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: true }] });
+
+    const { ensureSuperV1PostgresReady } = await import("@/server/superv1/db-preflight");
+
+    await expect(ensureSuperV1PostgresReady()).rejects.toMatchObject({
+      code: "SUPERV1_SCHEMA_MISSING",
+      details: {
+        missing_columns: ["public.conversations.interaction_mode"],
+      },
+    });
+  });
+
   test("passes when connectivity and schema checks succeed", async () => {
     process.env.DATABASE_URL = "postgres://example";
     queryMock.mockResolvedValueOnce({ rows: [] });
     queryMock.mockResolvedValueOnce({ rows: [] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: true }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: true }] });
+    queryMock.mockResolvedValueOnce({ rows: [{ exists: true }] });
 
     const { ensureSuperV1PostgresReady } = await import("@/server/superv1/db-preflight");
 
     await expect(ensureSuperV1PostgresReady()).resolves.toBeUndefined();
-    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(queryMock).toHaveBeenCalledTimes(5);
   });
 });

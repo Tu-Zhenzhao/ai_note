@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { generateModelObject } from "@/server/model/adapters";
-import { SuperV1IntentResult, SuperV1Turn } from "@/server/superv1/types";
+import {
+  SuperV1HelpContext,
+  SuperV1InteractionMode,
+  SuperV1IntentResult,
+  SuperV1Turn,
+} from "@/server/superv1/types";
 import { superV1IntentSystemPrompt } from "@/server/prompts/superv1";
 
 const schema = z.object({
@@ -18,19 +23,25 @@ function looksLikeHelp(message: string): boolean {
     "can you help",
     "suggest",
     "give me options",
+    "don't understand",
+    "what does",
     "不确定",
     "不知道",
     "给我建议",
     "帮我",
+    "不懂",
+    "什么叫",
+    "啥意思",
+    "没太懂",
   ].some((token) => text.includes(token));
 }
 
-function looksLikeDiscussion(message: string): boolean {
+function looksLikeClarification(message: string): boolean {
   const text = message.trim().toLowerCase();
   return /[?？]$/.test(text) || /(what do you mean|can you explain|什么意思|解释一下)/i.test(text);
 }
 
-function deterministicFallback(message: string): SuperV1IntentResult {
+function deterministicFallback(message: string, mode: SuperV1InteractionMode): SuperV1IntentResult {
   if (looksLikeHelp(message)) {
     return {
       intent: "ask_for_help",
@@ -38,11 +49,18 @@ function deterministicFallback(message: string): SuperV1IntentResult {
       reason: "Detected explicit request for answer help.",
     };
   }
-  if (looksLikeDiscussion(message)) {
+  if (looksLikeClarification(message)) {
     return {
-      intent: "other_discussion",
+      intent: "ask_for_help",
       confidence: 0.7,
-      reason: "Detected clarification/discussion-style turn.",
+      reason: "Detected clarification/help-seeking style turn.",
+    };
+  }
+  if (mode === "help_open") {
+    return {
+      intent: "ask_for_help",
+      confidence: 0.65,
+      reason: "Defaulting to help continuation while interaction mode is help_open.",
     };
   }
   return {
@@ -63,11 +81,15 @@ export async function classifyIntent(params: {
   currentSectionId: string;
   recentTurns: SuperV1Turn[];
   previousAssistantQuestion: string;
+  interactionMode: SuperV1InteractionMode;
+  helpContext: SuperV1HelpContext | null;
 }): Promise<SuperV1IntentResult> {
   try {
     return await generateModelObject({
       system: superV1IntentSystemPrompt(),
       prompt: [
+        `Interaction mode: ${params.interactionMode}`,
+        `Help context: ${params.helpContext ? JSON.stringify(params.helpContext) : "none"}`,
         `Current section: ${params.currentSectionId}`,
         `Previous assistant question: ${params.previousAssistantQuestion || "none"}`,
         `Latest user message: ${params.userMessage}`,
@@ -76,6 +98,6 @@ export async function classifyIntent(params: {
       schema,
     });
   } catch {
-    return deterministicFallback(params.userMessage);
+    return deterministicFallback(params.userMessage, params.interactionMode);
   }
 }

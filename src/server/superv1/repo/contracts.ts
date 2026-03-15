@@ -4,6 +4,7 @@ import {
   SuperV1Conversation,
   SuperV1ExtractionEvent,
   SuperV1PlannerEvent,
+  SuperV1RoutingEvent,
   SuperV1TemplateQuestion,
   SuperV1Turn,
 } from "@/server/superv1/types";
@@ -31,6 +32,9 @@ export interface SuperV1Repository {
 
   addPlannerEvent(event: SuperV1PlannerEvent): Promise<void>;
   listPlannerEvents(conversationId: string, limit?: number): Promise<SuperV1PlannerEvent[]>;
+
+  addRoutingEvent(event: SuperV1RoutingEvent): Promise<void>;
+  listRoutingEvents(conversationId: string, limit?: number): Promise<SuperV1RoutingEvent[]>;
 
   getAiSuggestedDirections(conversationId: string): Promise<SuperV1AiDirectionsRecord | null>;
   upsertAiSuggestedDirections(record: SuperV1AiDirectionsRecord): Promise<void>;

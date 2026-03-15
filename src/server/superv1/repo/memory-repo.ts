@@ -4,6 +4,7 @@ import {
   SuperV1Conversation,
   SuperV1ExtractionEvent,
   SuperV1PlannerEvent,
+  SuperV1RoutingEvent,
   SuperV1TemplateQuestion,
   SuperV1Turn,
 } from "@/server/superv1/types";
@@ -16,6 +17,7 @@ interface SuperV1Store {
   turns: Map<string, SuperV1Turn[]>;
   extractionEvents: Map<string, SuperV1ExtractionEvent[]>;
   plannerEvents: Map<string, SuperV1PlannerEvent[]>;
+  routingEvents: Map<string, SuperV1RoutingEvent[]>;
   aiDirections: Map<string, SuperV1AiDirectionsRecord>;
 }
 
@@ -30,6 +32,7 @@ function getStore(): SuperV1Store {
       turns: new Map(),
       extractionEvents: new Map(),
       plannerEvents: new Map(),
+      routingEvents: new Map(),
       aiDirections: new Map(),
     };
   }
@@ -76,6 +79,7 @@ export class MemorySuperV1Repository implements SuperV1Repository {
     this.store.turns.delete(conversationId);
     this.store.extractionEvents.delete(conversationId);
     this.store.plannerEvents.delete(conversationId);
+    this.store.routingEvents.delete(conversationId);
     this.store.aiDirections.delete(conversationId);
   }
 
@@ -151,6 +155,17 @@ export class MemorySuperV1Repository implements SuperV1Repository {
 
   async listPlannerEvents(conversationId: string, limit = 100): Promise<SuperV1PlannerEvent[]> {
     const events = this.store.plannerEvents.get(conversationId) ?? [];
+    return events.slice(-limit);
+  }
+
+  async addRoutingEvent(event: SuperV1RoutingEvent): Promise<void> {
+    const events = this.store.routingEvents.get(event.conversation_id) ?? [];
+    pushCapped(events, event, 300);
+    this.store.routingEvents.set(event.conversation_id, events);
+  }
+
+  async listRoutingEvents(conversationId: string, limit = 100): Promise<SuperV1RoutingEvent[]> {
+    const events = this.store.routingEvents.get(conversationId) ?? [];
     return events.slice(-limit);
   }
 

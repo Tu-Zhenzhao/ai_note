@@ -110,4 +110,33 @@ describe("superv1 postgres repo json serialization", () => {
     expect(typeof params[2]).toBe("string");
     expect(JSON.parse(params[2]).next_question_id).toBe("q2");
   });
+
+  test("serializes detected_help_selection_json for routing events", async () => {
+    const { PostgresSuperV1Repository } = await import("@/server/superv1/repo/postgres-repo");
+    const repo = new PostgresSuperV1Repository();
+
+    await repo.addRoutingEvent({
+      id: "route-1",
+      conversation_id: "conv-1",
+      turn_id: "turn-1",
+      intent: "ask_for_help",
+      mode_before: "help_open",
+      mode_after: "help_open",
+      detected_help_selection_json: {
+        detected: true,
+        selection_type: "numeric",
+        selected_option_index: 1,
+        selected_option_text: "Option 2",
+        confidence: 0.98,
+        raw_message: "2",
+      },
+      decision_reason: "Selection-only help continuation",
+      created_at: new Date().toISOString(),
+    });
+
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    const [, params] = queryMock.mock.calls[0];
+    expect(typeof params[6]).toBe("string");
+    expect(JSON.parse(params[6]).selection_type).toBe("numeric");
+  });
 });

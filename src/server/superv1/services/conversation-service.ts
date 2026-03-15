@@ -46,6 +46,8 @@ export async function startSuperV1Conversation(): Promise<{
     status: "active",
     active_section_id: activeSectionId,
     current_question_id: initialQuestion?.question_id ?? null,
+    interaction_mode: "interviewing",
+    help_context_json: null,
     created_at: now,
     updated_at: now,
   });
@@ -59,6 +61,8 @@ export async function startSuperV1Conversation(): Promise<{
     status: "active" as const,
     active_section_id: planner.active_section_id,
     current_question_id: planner.next_question_id,
+    interaction_mode: "interviewing" as const,
+    help_context_json: null,
     created_at: now,
     updated_at: now,
   };
@@ -98,11 +102,12 @@ export async function getSuperV1ConversationTurns(conversationId: string) {
 
 export async function getSuperV1ConversationAudit(conversationId: string) {
   const repo = getSuperV1Repository();
-  const [conversation, turns, extractionEvents, plannerEvents] = await Promise.all([
+  const [conversation, turns, extractionEvents, plannerEvents, routingEvents] = await Promise.all([
     repo.getConversation(conversationId),
     repo.listTurns(conversationId, 200),
     repo.listExtractionEvents(conversationId, 200),
     repo.listPlannerEvents(conversationId, 200),
+    repo.listRoutingEvents(conversationId, 200),
   ]);
   if (!conversation) return null;
   return {
@@ -110,6 +115,7 @@ export async function getSuperV1ConversationAudit(conversationId: string) {
     turns,
     extraction_events: extractionEvents,
     planner_events: plannerEvents,
+    routing_events: routingEvents,
   };
 }
 

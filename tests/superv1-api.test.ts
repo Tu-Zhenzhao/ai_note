@@ -97,6 +97,8 @@ describe("superv1 API routes", () => {
     expect(turnResponse.status).toBe(200);
     expect(typeof turnData.reply).toBe("string");
     expect(turnData.conversationId).toBe(startData.conversationId);
+    expect(turnData.interaction.mode_before).toBe("interviewing");
+    expect(turnData.interaction.mode_after).toBe("interviewing");
     expect(
       logSpy.mock.calls.some(
         (call) =>
@@ -121,6 +123,7 @@ describe("superv1 API routes", () => {
     const stateData = await stateResponse.json();
     expect(stateResponse.status).toBe(200);
     expect(stateData.state.conversationId).toBe(startData.conversationId);
+    expect(stateData.state.interaction_mode).toBe("interviewing");
 
     const { GET: turnsGet } = await import("../app/api/conversations/[id]/turns/route");
     const turnsResponse = await turnsGet(new Request("http://localhost"), {
@@ -135,6 +138,24 @@ describe("superv1 API routes", () => {
   test("audit endpoint enforces admin token", async () => {
     const { POST: startPost } = await import("../app/api/conversations/start/route");
     const started = await (await startPost()).json();
+    generateModelObjectMock.mockResolvedValueOnce({
+      intent: "ask_for_help",
+      confidence: 0.9,
+      reason: "Needs help",
+    });
+    generateModelTextMock.mockResolvedValueOnce("Let's unpack this question.");
+    const { POST: turnPost } = await import("../app/api/turn/route");
+    await turnPost(
+      new NextRequest("http://localhost/api/turn", {
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: started.conversationId,
+          userMessage: "I don't understand this question.",
+          language: "en",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
     process.env.INTERVIEW_TRACE_ADMIN_KEY = "superv1-admin";
     const { GET: auditGet } = await import("../app/api/conversations/[id]/audit/route");
@@ -153,6 +174,9 @@ describe("superv1 API routes", () => {
       { params: Promise.resolve({ id: started.conversationId }) },
     );
     expect(authorized.status).toBe(200);
+    const payload = await authorized.json();
+    expect(Array.isArray(payload.routing_events)).toBe(true);
+    expect(payload.routing_events.length).toBeGreaterThan(0);
   });
 
   test("/api/turn logs fail envelope for invalid payload", async () => {

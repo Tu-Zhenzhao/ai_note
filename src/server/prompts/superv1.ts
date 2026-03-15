@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
+import { SuperV1Intent } from "@/server/superv1/types";
 
 const promptCache: Record<string, string> = {};
 
@@ -15,7 +16,7 @@ function loadPromptFile(filename: string, fallback: string): string {
 }
 
 const INTENT_FALLBACK =
-  "You classify user turns for a checklist-driven interview runtime. Return strict JSON with intent/confidence/reason only. Allowed intents: answer_question, ask_for_help, other_discussion. Prefer answer_question when user is plausibly answering the active question. Use ask_for_help only for explicit request for suggestions/help to answer. Use other_discussion for clarification-only or side discussion turns.";
+  "You classify user turns for a checklist-driven interview runtime. Return strict JSON with intent/confidence/reason only. Allowed intents: answer_question, ask_for_help, other_discussion. Prefer answer_question when user is plausibly answering the active question. Use ask_for_help for confusion/clarification/help-to-answer turns. Use other_discussion only for side discussions unrelated to answering the current question.";
 
 const EXTRACTION_FALLBACK =
   "You extract checklist answers from a user turn. Return strict JSON with filled_items, ambiguous_items, possible_items. Only fill question_id values from the provided open questions list. Do not invent facts or strengthen vague claims. Attach evidence text for each filled item.";
@@ -34,8 +35,14 @@ export function superV1ExtractionSystemPrompt(): string {
   return loadPromptFile("SUPERV1_EXTRACTION.md", EXTRACTION_FALLBACK);
 }
 
-export function superV1ResponseSystemPrompt(): string {
-  return loadPromptFile("RESPONSE_ANSWER_QUESTION.md", RESPONSE_FALLBACK);
+const RESPONSE_PROMPT_FILE_BY_INTENT: Record<SuperV1Intent, string> = {
+  answer_question: "RESPONSE_ANSWER_QUESTION.md",
+  ask_for_help: "RESPONSE_ASK_FOR_HELP.md",
+  other_discussion: "RESPONSE_OTHER_DISCUSSION.md",
+};
+
+export function superV1ResponseSystemPrompt(intent: SuperV1Intent): string {
+  return loadPromptFile(RESPONSE_PROMPT_FILE_BY_INTENT[intent], RESPONSE_FALLBACK);
 }
 
 export function superV1AiDirectionsSystemPrompt(): string {

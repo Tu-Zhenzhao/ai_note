@@ -93,6 +93,7 @@ Chinese examples:
 
 Confusion should always be classified as ask_for_help.
 
+Questions about previously suggested help options should also be classified as ask_for_help.
 
 --------------------------------------------------
 other_discussion
@@ -123,6 +124,14 @@ In that case classify as:
 
 ask_for_help
 
+If the user message clearly refers to one of the previously suggested help options
+(for example "option 2", "the second one", "第二个", or similar phrasing),
+interpret this as selecting a help option.
+
+In that case classify as:
+
+ask_for_help
+
 
 --------------------------------------------------
 EDGE CASES
@@ -136,6 +145,11 @@ If the message is extremely short but plausible as an answer:
 
 Prefer answer_question.
 
+If the user provides a possible answer but expresses uncertainty
+(for example using words like "maybe", "I think", "not sure but"),
+still classify as:
+
+answer_question
 
 --------------------------------------------------
 OUTPUT FORMAT

@@ -201,6 +201,8 @@ export function deriveStateView(params: {
     status: params.conversation.status,
     activeSectionId: params.conversation.active_section_id,
     currentQuestionId: params.conversation.current_question_id,
+    interaction_mode: params.conversation.interaction_mode ?? "interviewing",
+    help_context: params.conversation.help_context_json ?? null,
     completion: {
       total,
       filled,
