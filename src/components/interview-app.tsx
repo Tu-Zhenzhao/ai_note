@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import Link from "next/link";
 import {
   ReviewSectionId,
 } from "@/components/interview-review-state";
@@ -213,6 +214,14 @@ type SuperV1TurnStreamEvent =
       error: string;
       code?: string;
     };
+
+type SuperV1ExportFormat =
+  | "chat_history_txt"
+  | "question_sheet_md"
+  | "question_sheet_txt"
+  | "ai_direction_report_md";
+
+type LegalModalType = "terms" | "privacy" | "notice";
 
 function isThematicBreakLine(line: string): boolean {
   const compact = line.replace(/[\t ]+/g, "");
@@ -1233,6 +1242,11 @@ export function InterviewApp() {
   const { lang, setLang, t, getSectionName } = useLanguage();
   const REVIEW_ITEMS = getReviewItems(t);
   const SECTION_CONFIGS = getSectionConfigs(t);
+  const contextUsageFlag = (process.env.NEXT_PUBLIC_SHOW_CONTEXT_USAGE ?? "").toLowerCase();
+  const showContextUsage =
+    contextUsageFlag === "1" ||
+    contextUsageFlag === "true" ||
+    (contextUsageFlag !== "0" && contextUsageFlag !== "false" && process.env.NODE_ENV !== "production");
 
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1265,6 +1279,9 @@ export function InterviewApp() {
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const [runtimeProgressItems, setRuntimeProgressItems] = useState<RuntimeProgressItem[]>([]);
   const [streamingReply, setStreamingReply] = useState("");
+  const [superV1State, setSuperV1State] = useState<SuperV1StatePayload | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<SuperV1ExportFormat | null>(null);
+  const [legalModal, setLegalModal] = useState<LegalModalType | null>(null);
   const [progressStats, setProgressStats] = useState<SuperV1ProgressStats>({
     total: 0,
     filled: 0,
@@ -1325,6 +1342,7 @@ export function InterviewApp() {
     reason?: string,
     interaction?: SuperV1TurnPayload["interaction"],
   ) {
+    setSuperV1State(state);
     const nextInteractionMode = state.interaction_mode ?? interaction?.mode_after ?? "interviewing";
     setInteractionMode(nextInteractionMode);
     setRouteReason(interaction?.route_reason ?? reason ?? null);
@@ -1714,6 +1732,54 @@ export function InterviewApp() {
     }
   }
 
+  function parseFilenameFromDisposition(disposition: string | null): string | null {
+    if (!disposition) return null;
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1]);
+      } catch {
+        // ignore decoding error and continue fallback parsing
+      }
+    }
+    const asciiMatch = disposition.match(/filename="([^"]+)"/i) ?? disposition.match(/filename=([^;]+)/i);
+    if (!asciiMatch?.[1]) return null;
+    return asciiMatch[1].trim();
+  }
+
+  async function handleExport(format: SuperV1ExportFormat) {
+    if (!sessionId || !superV1ConversationId || loading || !!deletingSessionId || !!switchingSessionId) {
+      return;
+    }
+    setExportingFormat(format);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/conversations/${superV1ConversationId}/exports?format=${encodeURIComponent(format)}`,
+      );
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Export failed");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition");
+      const filename = parseFilenameFromDisposition(disposition) ?? `${format}.txt`;
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExportingFormat(null);
+    }
+  }
+
   async function handleNewSession() {
     let newConversationId: string | null = null;
     try {
@@ -1733,6 +1799,8 @@ export function InterviewApp() {
     setMessages([
       { role: "assistant", content: t("initial_greeting") },
     ]);
+    setSuperV1State(null);
+    setExportingFormat(null);
     setPreview(null);
     setCompletionState(null);
     setCurrentSectionIndex(0);
@@ -1808,6 +1876,8 @@ export function InterviewApp() {
         setSessionId("");
         setSuperV1ConversationId(null);
         setMessages([{ role: "assistant", content: t("initial_greeting") }]);
+        setSuperV1State(null);
+        setExportingFormat(null);
         setPreview(null);
         setCompletionState(null);
         setCurrentSectionIndex(0);
@@ -1852,12 +1922,14 @@ export function InterviewApp() {
       })
       .filter(Boolean);
   })();
-  const score = Math.round(progressStats.ratio * 100);
+  const totalQuestionCount = superV1State?.answers.length ?? progressStats.total;
+  const answeredQuestionCount = superV1State
+    ? superV1State.answers.filter((answer) => answer.status !== "empty").length
+    : progressStats.filled + progressStats.confirmed;
+  const score =
+    totalQuestionCount > 0 ? Math.round((answeredQuestionCount / totalQuestionCount) * 100) : 0;
   const level = (completionState?.completion_level as string) ?? "incomplete";
-  const verCoverage =
-    progressStats.total > 0
-      ? Math.round((progressStats.confirmed / progressStats.total) * 100)
-      : 0;
+  const verCoverage = score;
 
   const levelBadge: Record<string, { bg: string; text: string }> = {
     incomplete: { bg: "var(--color-chip)", text: "var(--color-muted)" },
@@ -1883,7 +1955,25 @@ export function InterviewApp() {
     (sections?.ai_suggested_content_directions as Array<Record<string, unknown>> | undefined) ?? [];
   const aiSuggestionRecommendation =
     (sections?.ai_suggested_recommendation as Record<string, unknown> | undefined) ?? null;
-  const aiSuggestionsReady = level === "completed" || level === "complete";
+  const aiSuggestionsReady =
+    !!superV1State?.ai_suggested_directions &&
+    (superV1State.ai_suggested_directions.ai_suggested_directions?.length ?? 0) > 0;
+  const exportDeskReady = aiSuggestionsReady;
+  const exportBusy = loading || !!deletingSessionId || !!switchingSessionId || !!exportingFormat;
+  const legalModalTitle = legalModal
+    ? legalModal === "terms"
+      ? t("legal_terms_title")
+      : legalModal === "privacy"
+        ? t("legal_privacy_title")
+        : t("legal_notice_title")
+    : "";
+  const legalModalBody = legalModal
+    ? legalModal === "terms"
+      ? t("legal_terms_body")
+      : legalModal === "privacy"
+        ? t("legal_privacy_body")
+        : t("legal_notice_body")
+    : "";
 
   async function handleConfirmReviewStep() {
     if (!reviewState || !activeReviewItem) return;
@@ -2078,6 +2168,30 @@ export function InterviewApp() {
           >
             {sessionBadgeLabel}
           </span>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              padding: "3px 9px",
+              borderRadius: 999,
+              border: "1px solid rgba(212, 160, 23, 0.45)",
+              background: "#FFF4D6",
+              color: "#8a6200",
+            }}
+          >
+            {t("badge_alpha")}
+          </span>
+          <Link
+            href="/guide"
+            className="guide-cta"
+            style={{
+              textDecoration: "none",
+            }}
+          >
+            {t("btn_how_to_use")}
+          </Link>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button
               onClick={() => setLang(lang === "en" ? "zh" : "en")}
@@ -2256,18 +2370,27 @@ export function InterviewApp() {
           </div>
         )}
 
-        {/* ── Main slab ── */}
+        {/* ── Workspace stack ── */}
         <div
-          className="interview-slab"
+          className="workspace-stack"
           style={{
-            background: "var(--color-elev)",
-            borderRadius: "var(--radius-l)",
-            boxShadow: "var(--shadow-1)",
             display: "flex",
-            height: "calc(100vh - 88px)",
-            overflow: "hidden",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
+          {/* ── Main slab ── */}
+          <div
+            className="interview-slab"
+            style={{
+              background: "var(--color-elev)",
+              borderRadius: "var(--radius-l)",
+              boxShadow: "var(--shadow-1)",
+              display: "flex",
+              height: "calc(100vh - 88px)",
+              overflow: "hidden",
+            }}
+          >
           {/* ── Left: Chat panel (55%) ── */}
           <div
             className="chat-side"
@@ -2999,15 +3122,305 @@ export function InterviewApp() {
             </div>
 
             {/* Compact context window strip */}
-            <ContextWindowCompact
-              contextWindow={contextWindow}
-              cumulativeTokens={cumulativeTokens}
-              turnCount={turnCount}
-              t={t}
-            />
+            {showContextUsage && (
+              <ContextWindowCompact
+                contextWindow={contextWindow}
+                cumulativeTokens={cumulativeTokens}
+                turnCount={turnCount}
+                t={t}
+              />
+            )}
+          </div>
+          </div>
+
+          <div
+            className="export-desk-slab"
+            style={{
+              background: "var(--color-elev)",
+              borderRadius: "var(--radius-l)",
+              boxShadow: "var(--shadow-1)",
+              border: exportDeskReady ? "1px solid rgba(13,123,100,0.35)" : "1px solid var(--color-line)",
+              padding: "16px 18px",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "var(--color-text)",
+                }}
+              >
+                {t("section_export_desk")}
+              </h3>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  borderRadius: 999,
+                  padding: "2px 7px",
+                  background: exportDeskReady ? "#EAF5F2" : "var(--color-chip)",
+                  color: exportDeskReady ? "#0D7B64" : "var(--color-muted)",
+                }}
+              >
+                {exportDeskReady ? t("chat_live") : t("export_locked_badge")}
+              </span>
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: exportDeskReady ? "#0D7B64" : "var(--color-muted)",
+                marginBottom: 12,
+              }}
+            >
+              {exportDeskReady ? t("export_ready_note") : t("export_pending_note")}
+            </div>
+
+            <div className="export-desk-grid">
+              <div
+                style={{
+                  border: "1px solid var(--color-line)",
+                  borderRadius: "var(--radius-m)",
+                  background: "var(--color-code-bg)",
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                  {t("export_chat_history")}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("chat_history_txt")}
+                    disabled={!exportDeskReady || !sessionId || exportBusy}
+                    style={{
+                      background: "var(--color-cta)",
+                      color: "#fff",
+                      borderRadius: 999,
+                      padding: "7px 12px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {exportingFormat === "chat_history_txt" ? t("export_in_progress") : t("export_chat_history_btn")}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid var(--color-line)",
+                  borderRadius: "var(--radius-m)",
+                  background: "var(--color-code-bg)",
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                  {t("export_question_sheet")}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("question_sheet_md")}
+                    disabled={!exportDeskReady || !sessionId || exportBusy}
+                    style={{
+                      background: "var(--color-chip)",
+                      color: "var(--color-text)",
+                      borderRadius: 999,
+                      padding: "7px 12px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {exportingFormat === "question_sheet_md" ? t("export_in_progress") : t("export_question_sheet_md_btn")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("question_sheet_txt")}
+                    disabled={!exportDeskReady || !sessionId || exportBusy}
+                    style={{
+                      background: "var(--color-chip)",
+                      color: "var(--color-text)",
+                      borderRadius: 999,
+                      padding: "7px 12px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {exportingFormat === "question_sheet_txt" ? t("export_in_progress") : t("export_question_sheet_txt_btn")}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid var(--color-line)",
+                  borderRadius: "var(--radius-m)",
+                  background: "var(--color-code-bg)",
+                  padding: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)" }}>
+                  {t("export_ai_report")}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("ai_direction_report_md")}
+                    disabled={!exportDeskReady || !sessionId || exportBusy}
+                    style={{
+                      background: "var(--color-chip)",
+                      color: "var(--color-text)",
+                      borderRadius: 999,
+                      padding: "7px 12px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {exportingFormat === "ai_direction_report_md" ? t("export_in_progress") : t("export_ai_report_btn")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            margin: "10px 4px 0 4px",
+            paddingBottom: 4,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontSize: 11, color: "var(--color-muted)" }}>
+            {t("legal_alpha_notice")} {t("legal_rights")}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setLegalModal("terms")}
+              style={{
+                background: "var(--color-chip)",
+                color: "var(--color-text)",
+                borderRadius: 999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t("legal_terms_btn")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLegalModal("privacy")}
+              style={{
+                background: "var(--color-chip)",
+                color: "var(--color-text)",
+                borderRadius: 999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t("legal_privacy_btn")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLegalModal("notice")}
+              style={{
+                background: "#FFF4D6",
+                color: "#8a6200",
+                borderRadius: 999,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 700,
+                border: "1px solid rgba(212, 160, 23, 0.45)",
+              }}
+            >
+              {t("legal_notice_btn")}
+            </button>
           </div>
         </div>
       </div>
+      {legalModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: "rgba(27, 25, 21, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setLegalModal(null)}
+        >
+          <div
+            style={{
+              width: "min(720px, 100%)",
+              borderRadius: 16,
+              border: "1px solid var(--color-line)",
+              background: "#fff",
+              boxShadow: "var(--shadow-1)",
+              padding: "18px 18px 16px",
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                marginBottom: 10,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--color-text)" }}>
+                {legalModalTitle}
+              </div>
+              <button
+                type="button"
+                onClick={() => setLegalModal(null)}
+                style={{
+                  background: "transparent",
+                  color: "var(--color-muted)",
+                  fontSize: 20,
+                  lineHeight: 1,
+                  padding: "0 4px",
+                }}
+                aria-label="Close legal modal"
+              >
+                &times;
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: "var(--color-text)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+              {legalModalBody}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--color-muted)" }}>
+              {t("legal_rights")}
+            </div>
+          </div>
+        </div>
+      )}
       {(deletingSessionId || switchingSessionId) && (
         <div
           style={{

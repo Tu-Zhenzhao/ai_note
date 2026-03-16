@@ -4,6 +4,8 @@ const translations: Record<Language, Record<string, string>> = {
   en: {
     // Page header
     app_title: "AI Content Strategist",
+    badge_alpha: "ALPHA",
+    btn_how_to_use: "How to use it!",
 
     // Chat panel
     chat_title: "Interview",
@@ -38,6 +40,45 @@ const translations: Record<Language, Record<string, string>> = {
     btn_send: "Send",
     input_placeholder: "Type your answer… (Enter to send, Shift+Enter for new line)",
 
+    // Legal
+    legal_terms_btn: "Terms",
+    legal_privacy_btn: "Privacy",
+    legal_notice_btn: "Alpha Notice",
+    legal_alpha_notice: "Alpha testing version only. Results are not guaranteed.",
+    legal_rights: "All rights reserved Ultrafilter AI.",
+    legal_terms_title: "Terms of Use",
+    legal_terms_body:
+      "This product is provided for internal alpha testing. Outputs are for reference only and do not constitute professional advice. You are responsible for reviewing and validating all generated content before use.",
+    legal_privacy_title: "Privacy Notice",
+    legal_privacy_body:
+      "During alpha testing, conversation content may be processed to provide responses and improve product quality. Do not submit sensitive, confidential, or regulated personal information unless explicitly approved by your organization.",
+    legal_notice_title: "Alpha Test Disclaimer",
+    legal_notice_body:
+      "This is an alpha test feature set. Availability, quality, and behavior may change at any time. Results are not guaranteed. By continuing to use this interface, you acknowledge and accept these limitations.",
+    guide_back_home: "Back to Workspace",
+    guide_title: "Quick Start Guide",
+    guide_intro:
+      "New here? Follow these steps and you can complete your first strategy workflow in minutes.",
+    guide_step_1_title: "Start a session",
+    guide_step_1_body:
+      "Click '+ New Session' if needed. The AI will ask interview questions in chat.",
+    guide_step_2_title: "Answer naturally",
+    guide_step_2_body:
+      "Use your own words. If you feel confused, ask the agent directly, for example: \"Can you explain this question more?\" or \"I don't understand this question.\"",
+    guide_step_3_title: "Watch live preview",
+    guide_step_3_body:
+      "The right panel fills your strategy sections as you answer.",
+    guide_step_4_title: "Finish all questions",
+    guide_step_4_body:
+      "Progress is based on answered questions. Complete them to unlock AI suggested directions.",
+    guide_step_5_title: "Export your results",
+    guide_step_5_body:
+      "Scroll down to Export Desk and download chat history, answered sheet, and AI report.",
+    guide_tip_title: "Pro tips",
+    guide_tip_1: "Use one session per brand/project.",
+    guide_tip_2: "Keep answers concrete: audience, pain points, proof, and boundaries.",
+    guide_tip_3: "Review before export if any section looks unclear.",
+
     // Section names
     section_company_understanding: "Company Understanding",
     section_audience_understanding: "Audience Understanding",
@@ -46,6 +87,7 @@ const translations: Record<Language, Record<string, string>> = {
     section_ai_suggested_content_directions: "AI Suggested Directions",
     section_generation_plan: "Generation Plan",
     section_content_preferences_and_boundaries: "Content Preferences & Boundaries",
+    section_export_desk: "Export Desk",
 
     // Section status
     status_confirming: "confirming",
@@ -76,6 +118,17 @@ const translations: Record<Language, Record<string, string>> = {
     review_suggest_hint: "Suggest change saves your text directly (no AI rewrite in this step).",
     review_auto_reply: "Looks good — I'm happy with {section}. Let's continue.",
     ai_suggestion_pending_note: "AI suggestion will provide after finished all 6 sections!",
+    export_pending_note: "Please finish all interview steps and wait for AI suggestions before exporting.",
+    export_ready_note: "All exports are ready.",
+    export_chat_history: "Chat history (.txt)",
+    export_question_sheet: "Question list answered sheet",
+    export_ai_report: "AI suggested direction report (.md)",
+    export_chat_history_btn: "Export TXT",
+    export_question_sheet_md_btn: "Export MD",
+    export_question_sheet_txt_btn: "Export TXT",
+    export_ai_report_btn: "Export MD",
+    export_in_progress: "Exporting...",
+    export_locked_badge: "Locked",
 
     // Structured choice
     structured_title: "Quick selection",
@@ -188,6 +241,8 @@ const translations: Record<Language, Record<string, string>> = {
 
   zh: {
     app_title: "AI 内容策略师",
+    badge_alpha: "ALPHA",
+    btn_how_to_use: "如何使用？",
 
     chat_title: "访谈",
     chat_subtitle: "AI 内容策略师",
@@ -218,6 +273,38 @@ const translations: Record<Language, Record<string, string>> = {
     btn_send: "发送",
     input_placeholder: "输入您的回答…（回车发送，Shift+回车换行）",
 
+    legal_terms_btn: "服务条款",
+    legal_privacy_btn: "隐私说明",
+    legal_notice_btn: "Alpha 声明",
+    legal_alpha_notice: "当前为 Alpha 测试版本，结果不作任何保证。",
+    legal_rights: "Ultrafilter AI 保留所有权利。",
+    legal_terms_title: "服务条款",
+    legal_terms_body:
+      "本产品仅用于内部 Alpha 测试。系统输出仅供参考，不构成任何专业建议。您有责任在使用前审阅并验证所有生成内容。",
+    legal_privacy_title: "隐私说明",
+    legal_privacy_body:
+      "在 Alpha 测试期间，系统可能处理对话内容以提供功能并改进产品质量。除非已获得组织明确批准，请勿提交敏感、机密或受监管的个人信息。",
+    legal_notice_title: "Alpha 测试免责声明",
+    legal_notice_body:
+      "当前功能集处于 Alpha 测试阶段，可用性、质量与行为可能随时变化，结果不作保证。继续使用即表示您已知悉并接受上述限制。",
+    guide_back_home: "返回工作台",
+    guide_title: "快速上手指南",
+    guide_intro: "第一次使用？按下面步骤走，几分钟内就能完成第一轮策略流程。",
+    guide_step_1_title: "开始一个会话",
+    guide_step_1_body: "如有需要先点击「+ 新建会话」。AI 会在聊天区发起访谈提问。",
+    guide_step_2_title: "自然回答问题",
+    guide_step_2_body: "用你自己的话回答即可。如果有疑问，可以直接问 AI，例如：「可以再解释一下这个问题吗？」或「我不太理解这个问题。」",
+    guide_step_3_title: "看右侧实时预览",
+    guide_step_3_body: "你回答的内容会同步填充到右侧各个策略板块。",
+    guide_step_4_title: "完成全部问题",
+    guide_step_4_body: "进度按已回答问题计算。完成后会解锁 AI 建议方向。",
+    guide_step_5_title: "导出结果",
+    guide_step_5_body: "向下滚动到导出桌面，下载聊天记录、回答清单和 AI 报告。",
+    guide_tip_title: "使用建议",
+    guide_tip_1: "每个品牌/项目建议单独一个会话。",
+    guide_tip_2: "回答尽量具体：受众、痛点、证据、边界。",
+    guide_tip_3: "若某板块不清楚，先修正再导出。",
+
     section_company_understanding: "公司概况",
     section_audience_understanding: "受众洞察",
     section_linkedin_content_strategy: "LinkedIn 内容策略",
@@ -225,6 +312,7 @@ const translations: Record<Language, Record<string, string>> = {
     section_ai_suggested_content_directions: "AI 建议方向",
     section_generation_plan: "内容生成计划",
     section_content_preferences_and_boundaries: "内容偏好与边界",
+    section_export_desk: "导出桌面",
 
     status_confirming: "确认中",
     status_discussing: "讨论中",
@@ -251,6 +339,17 @@ const translations: Record<Language, Record<string, string>> = {
     review_suggest_hint: "修改建议将直接保存您的文字（此步骤不会进行 AI 改写）。",
     review_auto_reply: "没问题——我对「{section}」很满意，继续吧。",
     ai_suggestion_pending_note: "完成前 6 个板块后，AI 将提供建议方向！",
+    export_pending_note: "请先完成全部步骤并等待 AI 建议生成后再导出。",
+    export_ready_note: "导出文件已就绪。",
+    export_chat_history: "聊天记录（.txt）",
+    export_question_sheet: "已回答问题清单",
+    export_ai_report: "AI 建议方向报告（.md）",
+    export_chat_history_btn: "导出 TXT",
+    export_question_sheet_md_btn: "导出 MD",
+    export_question_sheet_txt_btn: "导出 TXT",
+    export_ai_report_btn: "导出 MD",
+    export_in_progress: "导出中...",
+    export_locked_badge: "未解锁",
 
     structured_title: "快速选择",
     btn_submit: "提交",

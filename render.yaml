@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: chris-chatbot
+    runtime: node
+    plan: free
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chris-chatbot-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: MODEL_PRIMARY
+        value: gemini-3.1-flash-lite-preview
+      - key: MODEL_FALLBACK
+        value: deepseek-chat
+      - key: INTERVIEW_TRACE_ADMIN_KEY
+        sync: false
+      - key: AGENT_TRACE_VERBOSE
+        value: "false"
+      - key: NEXT_PUBLIC_SHOW_CONTEXT_USAGE
+        value: "false"
+
+databases:
+  - name: chris-chatbot-db
+    plan: free
+    databaseName: chris_chatbot
+    user: chris_chatbot

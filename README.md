@@ -80,12 +80,17 @@ MODEL_PRIMARY=gemini-3.1-flash-lite-preview
 MODEL_FALLBACK=deepseek-chat
 INTERVIEW_TRACE_ADMIN_KEY=
 AGENT_TRACE_VERBOSE=false
+NEXT_PUBLIC_SHOW_CONTEXT_USAGE=
 ```
 
 Notes:
 
 - `DATABASE_URL` is required for SuperV1 runtime and migrations.
 - `AGENT_TRACE_VERBOSE=true` enables step-by-step runtime movement logs.
+- `NEXT_PUBLIC_SHOW_CONTEXT_USAGE` controls the bottom-right context usage strip:
+  - default behavior: visible in non-production, hidden in production
+  - set `1`/`true` to force show
+  - set `0`/`false` to force hide
 - Errors are always logged even when verbose trace is off.
 
 ## Local Setup
