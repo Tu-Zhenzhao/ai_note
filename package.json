@@ -17,20 +17,20 @@
     "@ai-sdk/deepseek": "latest",
     "@ai-sdk/google": "latest",
     "@ai-sdk/openai": "latest",
+    "@types/node": "latest",
     "ai": "latest",
     "next": "latest",
     "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-markdown": "^10.1.0",
+    "typescript": "latest",
     "zod": "latest"
   },
   "devDependencies": {
-    "@types/node": "latest",
     "@types/pg": "^8.18.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "latest",
     "vitest": "latest"
   }
 }
