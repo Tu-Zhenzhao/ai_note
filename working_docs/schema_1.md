@@ -1,5 +1,5 @@
 # Document 1 — Interview State Schema
-**Project:** AI Content Strategist Interviewer
+**Project:** AskMore (多问AI)
 **Version:** Agent Checklist Schema v2
 **Language:** English
 **Scope:** Runtime state for conversational interviewing, checklist tracking, preview projection, and generation gating

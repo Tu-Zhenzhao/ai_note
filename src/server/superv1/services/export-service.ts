@@ -156,7 +156,7 @@ function buildChatHistoryTxt(params: {
   generatedAtIso: string;
 }): string {
   const lines: string[] = [];
-  lines.push("AI Content Strategist - Chat History");
+  lines.push("AskMore - Chat History");
   lines.push(...buildMetaHeaderLines({
     conversationId: params.conversationId,
     generatedAtIso: params.generatedAtIso,
@@ -427,4 +427,3 @@ export async function buildSuperV1Export(
       throw new SuperV1RuntimeError("SUPERV1_RUNTIME_ERROR", `Unsupported export format: ${format}`, 400);
   }
 }
-

@@ -3,15 +3,15 @@ export type Language = "en" | "zh";
 const translations: Record<Language, Record<string, string>> = {
   en: {
     // Page header
-    app_title: "AI Content Strategist",
+    app_title: "AskMore",
     badge_alpha: "ALPHA",
     btn_how_to_use: "How to use it!",
 
     // Chat panel
     chat_title: "Interview",
-    chat_subtitle: "AI Content Strategist",
+    chat_subtitle: "AskMore",
     chat_live: "Live",
-    chat_sender: "AI Strategist",
+    chat_sender: "AskMore",
 
     // Task badges
     task_answering: "Answering",
@@ -240,14 +240,14 @@ const translations: Record<Language, Record<string, string>> = {
   },
 
   zh: {
-    app_title: "AI 内容策略师",
+    app_title: "多问AI",
     badge_alpha: "ALPHA",
     btn_how_to_use: "如何使用？",
 
     chat_title: "访谈",
-    chat_subtitle: "AI 内容策略师",
+    chat_subtitle: "多问AI",
     chat_live: "在线",
-    chat_sender: "AI 策略师",
+    chat_sender: "多问AI",
 
     task_answering: "回答中",
     task_helping: "协助中",

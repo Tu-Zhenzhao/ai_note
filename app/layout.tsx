@@ -3,8 +3,8 @@ import { ReactNode } from "react";
 import { LanguageProvider } from "@/lib/language-context";
 
 export const metadata = {
-  title: "AI Content Strategist Interviewer",
-  description: "Structured interview-to-generation engine for LinkedIn content",
+  title: "AskMore | 多问AI",
+  description: "AskMore (多问AI): AI strategist for structured interview intake and planning",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

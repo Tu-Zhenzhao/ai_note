@@ -1,5 +1,5 @@
 # Document 3 — Follow-up Strategy Table
-**Project:** AI Content Strategist Interviewer
+**Project:** AskMore (多问AI)
 **Version:** Agent Follow-up Framework v2
 **Language:** English
 **Scope:** Next-move selection, question strategy, fallback ladders, and stopping rules

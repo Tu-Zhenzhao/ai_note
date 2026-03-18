@@ -1,5 +1,5 @@
 # Document 4 — Preview Template
-**Project:** AI Content Strategist Interviewer
+**Project:** AskMore (多问AI)
 **Version:** Agent Checkpoint Preview v2
 **Language:** English
 **Scope:** User-facing preview and checkpoint behavior between interview and generation

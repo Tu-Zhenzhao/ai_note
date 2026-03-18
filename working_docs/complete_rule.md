@@ -1,5 +1,5 @@
 # Document 2 — Completion Rules
-**Project:** AI Content Strategist Interviewer
+**Project:** AskMore (多问AI)
 **Version:** Agent Completion Framework v2
 **Language:** English
 **Scope:** Completion logic for interview continuation, checkpointing, generation readiness, and handoff readiness

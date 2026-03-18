@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: chris-chatbot
+    name: askmore
     runtime: node
     plan: free
     branch: main
@@ -13,7 +13,7 @@ services:
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: chris-chatbot-db
+          name: askmore-db
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
@@ -33,7 +33,7 @@ services:
         value: "false"
 
 databases:
-  - name: chris-chatbot-db
+  - name: askmore-db
     plan: free
-    databaseName: chris_chatbot
-    user: chris_chatbot
+    databaseName: askmore
+    user: askmore

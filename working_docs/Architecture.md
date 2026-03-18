@@ -1,4 +1,4 @@
-# Architecture — AI Content Strategist Interviewer
+# Architecture — AskMore (多问AI)
 
 > Last updated: 2026-03-13
 >
