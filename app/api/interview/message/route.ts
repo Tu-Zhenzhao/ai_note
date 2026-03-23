@@ -12,7 +12,7 @@ import { z } from "zod";
 const bodySchema = z.object({
   session_id: z.string().min(1),
   user_message: z.string().min(1),
-  language: z.enum(["en", "zh"]).optional().default("en"),
+  language: z.enum(["en", "zh"]).optional().default("zh"),
 });
 
 export async function POST(request: NextRequest) {

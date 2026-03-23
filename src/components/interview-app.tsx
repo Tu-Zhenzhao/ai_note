@@ -67,6 +67,9 @@ type SuperV1ProgressStats = {
   total: number;
   filled: number;
   confirmed: number;
+  requiredTotal: number;
+  requiredResolved: number;
+  requiredRatio: number;
   ratio: number;
 };
 
@@ -116,6 +119,11 @@ type SuperV1StatePayload = {
     filled: number;
     confirmed: number;
     needs_clarification: number;
+    required_total?: number;
+    required_filled?: number;
+    required_confirmed?: number;
+    required_resolved?: number;
+    required_ratio?: number;
   };
   answers: SuperV1AnswerView[];
   ai_suggested_directions?: {
@@ -1286,6 +1294,9 @@ export function InterviewApp() {
     total: 0,
     filled: 0,
     confirmed: 0,
+    requiredTotal: 0,
+    requiredResolved: 0,
+    requiredRatio: 0,
     ratio: 0,
   });
 
@@ -1367,12 +1378,17 @@ export function InterviewApp() {
     });
     setCompletionState({
       completion_level: state.status,
-      completion_score: Math.round(state.completion.ratio * 100),
+      completion_score: Math.round((state.completion.required_ratio ?? state.completion.ratio) * 100),
     });
     setProgressStats({
       total: state.completion.total,
       filled: state.completion.filled,
       confirmed: state.completion.confirmed,
+      requiredTotal: state.completion.required_total ?? state.completion.total,
+      requiredResolved:
+        state.completion.required_resolved ??
+        (state.completion.required_filled ?? 0) + (state.completion.required_confirmed ?? 0),
+      requiredRatio: state.completion.required_ratio ?? state.completion.ratio,
       ratio: state.completion.ratio,
     });
     setPreview(buildPreviewFromSuperV1State(state));
@@ -1922,10 +1938,13 @@ export function InterviewApp() {
       })
       .filter(Boolean);
   })();
-  const totalQuestionCount = superV1State?.answers.length ?? progressStats.total;
+  const requiredAnswers = superV1State?.answers.filter((answer) => answer.is_required ?? true) ?? [];
+  const totalQuestionCount = superV1State
+    ? requiredAnswers.length
+    : (progressStats.requiredTotal || progressStats.total);
   const answeredQuestionCount = superV1State
-    ? superV1State.answers.filter((answer) => answer.status !== "empty").length
-    : progressStats.filled + progressStats.confirmed;
+    ? requiredAnswers.filter((answer) => answer.status === "filled" || answer.status === "confirmed").length
+    : (progressStats.requiredResolved || progressStats.filled + progressStats.confirmed);
   const score =
     totalQuestionCount > 0 ? Math.round((answeredQuestionCount / totalQuestionCount) * 100) : 0;
   const level = (completionState?.completion_level as string) ?? "incomplete";

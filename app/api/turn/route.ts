@@ -14,7 +14,7 @@ import {
 const bodySchema = z.object({
   conversationId: z.string().uuid(),
   userMessage: z.string().min(1),
-  language: z.enum(["en", "zh"]).optional().default("en"),
+  language: z.enum(["en", "zh"]).optional().default("zh"),
 });
 
 export async function POST(request: NextRequest) {

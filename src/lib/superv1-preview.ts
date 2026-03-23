@@ -7,6 +7,7 @@ type SuperV1AnswerStatus = "empty" | "filled" | "needs_clarification" | "confirm
 
 export interface SuperV1AnswerView {
   question_id: string;
+  is_required?: boolean;
   status: SuperV1AnswerStatus;
   value: unknown;
   confidence: number | null;

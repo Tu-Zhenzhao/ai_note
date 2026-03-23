@@ -170,6 +170,7 @@ export function deriveStateView(params: {
   const orderedQuestions = sortTemplateQuestions(params.questions);
   const answerMap = answerByQuestionId(params.answers);
   const sections = sectionOrder(orderedQuestions);
+  const requiredQuestions = orderedQuestions.filter((question) => question.is_required);
 
   const sectionStats = sections.map((sectionId) => {
     const sectionQuestions = orderedQuestions.filter((q) => q.section_id === sectionId);
@@ -194,6 +195,10 @@ export function deriveStateView(params: {
   const filled = params.answers.filter((a) => a.status === "filled").length;
   const needsClarification = params.answers.filter((a) => a.status === "needs_clarification").length;
   const confirmed = params.answers.filter((a) => a.status === "confirmed").length;
+  const requiredTotal = requiredQuestions.length;
+  const requiredFilled = requiredQuestions.filter((q) => answerMap.get(q.question_id)?.status === "filled").length;
+  const requiredConfirmed = requiredQuestions.filter((q) => answerMap.get(q.question_id)?.status === "confirmed").length;
+  const requiredResolved = requiredFilled + requiredConfirmed;
 
   return {
     conversationId: params.conversation.id,
@@ -208,6 +213,11 @@ export function deriveStateView(params: {
       filled,
       needs_clarification: needsClarification,
       confirmed,
+      required_total: requiredTotal,
+      required_filled: requiredFilled,
+      required_confirmed: requiredConfirmed,
+      required_resolved: requiredResolved,
+      required_ratio: requiredTotal > 0 ? requiredResolved / requiredTotal : 0,
       ratio: total > 0 ? (filled + confirmed) / total : 0,
     },
     sections: sectionStats,
@@ -215,6 +225,7 @@ export function deriveStateView(params: {
       const answer = answerMap.get(question.question_id);
       return {
         question_id: question.question_id,
+        is_required: question.is_required,
         status: answer?.status ?? "empty",
         value: answer?.value_json ?? null,
         confidence: answer?.confidence ?? null,

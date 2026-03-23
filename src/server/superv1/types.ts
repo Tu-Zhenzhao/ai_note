@@ -204,6 +204,11 @@ export interface SuperV1StateView {
     filled: number;
     needs_clarification: number;
     confirmed: number;
+    required_total: number;
+    required_filled: number;
+    required_confirmed: number;
+    required_resolved: number;
+    required_ratio: number;
     ratio: number;
   };
   sections: Array<{
@@ -216,6 +221,7 @@ export interface SuperV1StateView {
   }>;
   answers: Array<{
     question_id: string;
+    is_required: boolean;
     status: SuperV1AnswerStatus;
     value: unknown;
     confidence: number | null;

@@ -11,7 +11,7 @@ interface LanguageContextValue {
 }
 
 const LanguageContext = createContext<LanguageContextValue>({
-  lang: "en",
+  lang: "zh",
   setLang: () => {},
   t: (key) => key,
   getSectionName: (id) => id,
@@ -20,7 +20,7 @@ const LanguageContext = createContext<LanguageContextValue>({
 const STORAGE_KEY = "ui_language";
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Language>("en");
+  const [lang, setLangState] = useState<Language>("zh");
 
   useEffect(() => {
     try {
@@ -33,6 +33,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  }, [lang]);
+
   const setLang = useCallback((next: Language) => {
     setLangState(next);
     try {
@@ -40,7 +44,6 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     } catch {
       // localStorage unavailable
     }
-    document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
   }, []);
 
   const t = useCallback(
