@@ -1,8 +1,9 @@
 "use client";
 
 import type { SuperV1RuntimePhase } from "@/server/superv1/types";
+import type { AskmoreV2RuntimePhase } from "@/server/askmore_v2/types";
 
-export type RuntimeProgressPhase = SuperV1RuntimePhase | "done";
+export type RuntimeProgressPhase = SuperV1RuntimePhase | AskmoreV2RuntimePhase | "done";
 
 export type RuntimeProgressItem = {
   phase: RuntimeProgressPhase;

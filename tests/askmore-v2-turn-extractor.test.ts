@@ -165,4 +165,167 @@ describe("askmore v2 turn extractor", () => {
     expect(result.facts_extracted.onset_timing?.value).toBe("最近才开始");
     expect(result.normalization_hits?.includes("start_time")).toBe(true);
   });
+
+  test("maps chinese frequency alias key to canonical frequency dimension", async () => {
+    const frequencyNode = {
+      ...currentNode,
+      target_dimensions: [
+        { id: "frequency", label: "乱尿的频率是多少（每周几次）？" },
+        { id: "urination_location", label: "排泄物的位置分布" },
+      ],
+      completion_criteria: ["frequency", "urination_location"],
+    } as const;
+
+    generateModelObjectMock.mockResolvedValue({
+      facts_extracted: {
+        频率: {
+          value: "一周三四次",
+          evidence: "一周三四次",
+          confidence: 0.8,
+        },
+      },
+      updated_dimensions: ["频率"],
+      missing_dimensions: ["urination_location"],
+      answer_quality: "usable",
+      user_effort_signal: "normal",
+      contradiction_detected: false,
+      candidate_hypothesis: "partial",
+      confidence_overall: 0.6,
+    });
+
+    const result = await extractTurnFacts({
+      language: "zh",
+      currentNode: frequencyNode,
+      nodeState: {
+        ...nodeState,
+        dimension_confidence: {
+          frequency: 0.1,
+          urination_location: 0.1,
+        },
+      },
+      userMessage: "一周三四次吧",
+    });
+
+    expect(result.facts_extracted.frequency?.value).toBe("一周三四次");
+    expect(result.updated_dimensions).toContain("frequency");
+    expect(result.normalization_hits?.includes("频率")).toBe(true);
+  });
+
+  test("uses mention-signal fallback when model returns no normalized facts", async () => {
+    const frequencyNode = {
+      ...currentNode,
+      target_dimensions: [
+        { id: "frequency", label: "乱尿的频率是多少（每周几次）？" },
+        { id: "urination_location", label: "排泄物的位置分布" },
+      ],
+      completion_criteria: ["frequency", "urination_location"],
+    } as const;
+
+    generateModelObjectMock.mockResolvedValue({
+      facts_extracted: {},
+      updated_dimensions: [],
+      missing_dimensions: ["frequency", "urination_location"],
+      answer_quality: "usable",
+      user_effort_signal: "normal",
+      contradiction_detected: false,
+      candidate_hypothesis: "partial",
+      confidence_overall: 0.2,
+    });
+
+    const result = await extractTurnFacts({
+      language: "zh",
+      currentNode: frequencyNode,
+      nodeState: {
+        ...nodeState,
+        dimension_confidence: {
+          frequency: 0.1,
+          urination_location: 0.1,
+        },
+      },
+      userMessage: "一周三四次吧",
+    });
+
+    expect(result.facts_extracted.frequency?.value).toContain("一周三四次");
+    expect(result.facts_extracted.frequency?.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(result.updated_dimensions).toContain("frequency");
+  });
+
+  test("uses hint-dimension fallback when model marks short answer as off_topic", async () => {
+    const frequencyNode = {
+      ...currentNode,
+      target_dimensions: [
+        { id: "frequency", label: "乱尿的频率是多少（每周几次）？" },
+        { id: "urination_location", label: "排泄物的位置分布" },
+      ],
+      completion_criteria: ["frequency", "urination_location"],
+    } as const;
+
+    generateModelObjectMock.mockResolvedValue({
+      facts_extracted: {},
+      updated_dimensions: [],
+      missing_dimensions: ["frequency", "urination_location"],
+      answer_quality: "off_topic",
+      user_effort_signal: "low",
+      contradiction_detected: false,
+      candidate_hypothesis: "none",
+      confidence_overall: 0.1,
+    });
+
+    const result = await extractTurnFacts({
+      language: "zh",
+      currentNode: frequencyNode,
+      nodeState: {
+        ...nodeState,
+        dimension_confidence: {
+          frequency: 0.1,
+          urination_location: 0.1,
+        },
+      },
+      userMessage: "一周三四次吧",
+      hintDimensionId: "frequency",
+    });
+
+    expect(result.facts_extracted.frequency?.value).toBe("一周三四次吧");
+    expect(result.facts_extracted.frequency?.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(result.updated_dimensions).toContain("frequency");
+  });
+
+  test("does not treat clarification question as answered even with hint", async () => {
+    const frequencyNode = {
+      ...currentNode,
+      target_dimensions: [
+        { id: "frequency", label: "乱尿的频率是多少（每周几次）？" },
+        { id: "urination_location", label: "排泄物的位置分布" },
+      ],
+      completion_criteria: ["frequency", "urination_location"],
+    } as const;
+
+    generateModelObjectMock.mockResolvedValue({
+      facts_extracted: {},
+      updated_dimensions: [],
+      missing_dimensions: ["frequency", "urination_location"],
+      answer_quality: "off_topic",
+      user_effort_signal: "normal",
+      contradiction_detected: false,
+      candidate_hypothesis: "none",
+      confidence_overall: 0.1,
+    });
+
+    const result = await extractTurnFacts({
+      language: "zh",
+      currentNode: frequencyNode,
+      nodeState: {
+        ...nodeState,
+        dimension_confidence: {
+          frequency: 0.1,
+          urination_location: 0.1,
+        },
+      },
+      userMessage: "你问的是乱尿几次还是尿尿几次？",
+      hintDimensionId: "frequency",
+    });
+
+    expect(Object.keys(result.facts_extracted)).toHaveLength(0);
+    expect(result.updated_dimensions).toHaveLength(0);
+  });
 });

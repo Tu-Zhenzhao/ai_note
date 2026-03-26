@@ -1,6 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AgentRuntimeProgress,
+  RuntimeProgressItem,
+  RuntimeProgressPhase,
+} from "@/components/agent-runtime-progress";
 
 type AskmoreV2Language = "en" | "zh";
 
@@ -55,6 +60,18 @@ type SessionState = {
   session: {
     current_question_id: string | null;
     current_sub_question_index: number;
+    active_turn_index?: number;
+    pending_intent?: "answer_question" | "ask_for_help" | "clarify_meaning" | "other_discussion" | null;
+    pending_commitments?: Array<{
+      id: string;
+      type: "micro_confirm" | "pending_correction" | "follow_up";
+      status?: "pending" | "resolved" | "expired";
+      question_id: string;
+      dimension_id?: string | null;
+      note?: string | null;
+      created_at: string;
+      expires_at?: string | null;
+    }>;
     summary_generated: boolean;
     finalized: boolean;
     pending_end_confirmation: boolean;
@@ -87,6 +104,14 @@ type SessionState = {
     open_points?: string[];
     next_steps?: string[];
   } | null;
+  runtime_meta?: {
+    last_task_module?: string;
+    last_transition_reason?: string;
+    latest_visible_summary?: string;
+    last_help_obstacle_layer?: "concept" | "observation" | "judgement" | "expression" | "scope";
+    last_help_resolution_goal?: "identify_behavior_signal" | "estimate_frequency" | "describe_duration" | "describe_timeline";
+    last_help_reconnect_target?: string;
+  };
   nodes?: Record<
     string,
     {
@@ -133,27 +158,66 @@ type SessionDetailResponse = {
 };
 
 type TurnResponse = {
-  understanding_feedback: string;
-  answer_status: "complete" | "partial" | "off_topic";
-  missing_points: string[];
-  suggested_next_action: string;
-  next_question: string | null;
-  example_answers: string[];
-  summary_patch: Record<string, unknown>;
-  readiness: {
-    readiness_score: number;
-    can_generate_summary: boolean;
-    should_end_early: boolean;
-    reason: string;
-  };
-  summary_text?: string | null;
-  structured_report_json?: Record<string, unknown> | null;
-  response_blocks?: ResponseBlock[];
+  session_id: string;
+  turn_id: string;
   state: SessionState;
-  assistant_message: string;
-  turn_count: number;
-  status: "in_progress" | "completed";
+  routed_intent: {
+    intent: "answer_question" | "ask_for_help" | "clarify_meaning" | "other_discussion";
+    confidence: number;
+    rationale?: string;
+  };
+  events: VisibleEvent[];
+  debug_events: DebugEvent[];
+  next_question?: {
+    question_id: string | null;
+    question_text: string;
+  } | null;
+  response_blocks: ResponseBlock[];
   error?: string;
+};
+
+type AskmoreV2RuntimePhase =
+  | "assemble_context"
+  | "route_intent"
+  | "execute_task"
+  | "build_response"
+  | "persist_and_finalize";
+
+type TurnStreamEvent =
+  | {
+      type: "phase";
+      phase: AskmoreV2RuntimePhase;
+      status: "start" | "done";
+      label?: string;
+    }
+  | {
+      type: "final";
+      payload: TurnResponse;
+    }
+  | {
+      type: "error";
+      error: string;
+      code?: string;
+    };
+
+type AgentTraceView = {
+  routed_intent: TurnResponse["routed_intent"];
+  task_module?: string;
+  transition_reason?: string;
+  current_question_id: string | null;
+  active_turn_index?: number;
+  help_obstacle_layer?: "concept" | "observation" | "judgement" | "expression" | "scope";
+  help_resolution_goal?: "identify_behavior_signal" | "estimate_frequency" | "describe_duration" | "describe_timeline";
+  help_reconnect_target?: string;
+  interaction_mode?: "micro_confirm" | "follow_up_select";
+  interaction_badge?: string;
+  pending_commitments: Array<{
+    id: string;
+    type: "micro_confirm" | "pending_correction" | "follow_up";
+    status: "pending" | "resolved" | "expired";
+    question_id: string | null;
+    dimension_id?: string | null;
+  }>;
 };
 
 type MicroConfirmOption = {
@@ -169,6 +233,59 @@ type ResponseBlock = {
   options?: MicroConfirmOption[];
   dimension_id?: string;
   allow_free_text?: boolean;
+  mode?: "micro_confirm" | "follow_up_select";
+  badge_label?: string;
+  source_event_id?: string;
+};
+
+type VisibleEvent = {
+  event_id: string;
+  event_type:
+    | "understanding"
+    | "acknowledgement"
+    | "why_this_matters"
+    | "gentle_gap_prompt"
+    | "help_explanation"
+    | "help_examples"
+    | "micro_confirm"
+    | "transition"
+    | "next_step";
+  created_at: string;
+  visible: boolean;
+  payload: {
+    content?: string;
+    items?: string[];
+    options?: MicroConfirmOption[];
+    dimension_id?: string;
+    allow_free_text?: boolean;
+    mode?: "micro_confirm" | "follow_up_select";
+    badge_label?: string;
+  };
+};
+
+type DebugEvent = {
+  event_id: string;
+  event_type:
+    | "understanding_summary"
+    | "state_update"
+    | "coverage_summary"
+    | "gap_notice"
+    | "help_explanation"
+    | "help_examples"
+    | "micro_confirm"
+    | "transition_summary"
+    | "next_question";
+  created_at: string;
+  visible: boolean;
+  payload: {
+    content?: string;
+    items?: string[];
+    options?: MicroConfirmOption[];
+    dimension_id?: string;
+    allow_free_text?: boolean;
+    mode?: "micro_confirm" | "follow_up_select";
+    badge_label?: string;
+  };
 };
 
 type SummaryResponse = {
@@ -186,7 +303,10 @@ type ChatRow = {
   id: string;
   role: "assistant" | "user";
   content: string;
+  events?: VisibleEvent[];
+  debugEvents?: DebugEvent[];
   responseBlocks?: ResponseBlock[];
+  trace?: AgentTraceView;
 };
 
 type SummaryDialogState = {
@@ -263,7 +383,176 @@ function subQuestionPriorityInfo(params: {
   };
 }
 
+function eventsToRenderBlocks(events: VisibleEvent[]): ResponseBlock[] {
+  const blocks: ResponseBlock[] = [];
+  for (const event of events) {
+    if (!event.visible) continue;
+    if (
+      event.event_type === "understanding"
+      || event.event_type === "acknowledgement"
+      || event.event_type === "why_this_matters"
+      || event.event_type === "help_explanation"
+      || event.event_type === "gentle_gap_prompt"
+    ) {
+      if (event.payload.content) blocks.push({ type: "understanding", content: event.payload.content });
+      continue;
+    }
+    if (event.event_type === "help_examples") {
+      if ((event.payload.items ?? []).length > 0) blocks.push({ type: "example_answers", items: event.payload.items });
+      continue;
+    }
+    if (event.event_type === "micro_confirm") {
+      if ((event.payload.options ?? []).length > 0) {
+        blocks.push({
+          type: "micro_confirm_options",
+          content: event.payload.content,
+          options: event.payload.options,
+          dimension_id: event.payload.dimension_id,
+          allow_free_text: event.payload.allow_free_text,
+          mode: event.payload.mode ?? "micro_confirm",
+          badge_label: event.payload.badge_label,
+          source_event_id: event.event_id,
+        });
+      } else if (event.payload.content) {
+        blocks.push({ type: "micro_confirmation", content: event.payload.content });
+      }
+      continue;
+    }
+    if (event.event_type === "transition") {
+      if (event.payload.content) blocks.push({ type: "node_summary", content: event.payload.content });
+      continue;
+    }
+    if (event.event_type === "next_step") {
+      if ((event.payload.options ?? []).length > 0) {
+        blocks.push({
+          type: "micro_confirm_options",
+          content: event.payload.content,
+          options: event.payload.options,
+          dimension_id: event.payload.dimension_id,
+          allow_free_text: event.payload.allow_free_text,
+          mode: event.payload.mode ?? "follow_up_select",
+          badge_label: event.payload.badge_label,
+          source_event_id: event.event_id,
+        });
+      } else if (event.payload.content) {
+        blocks.push({ type: "next_question", content: event.payload.content });
+      }
+    }
+  }
+  return blocks.slice(0, 4);
+}
+
+function composeAssistantTextFromBlocks(blocks: ResponseBlock[]): string {
+  const lines: string[] = [];
+  for (const block of blocks) {
+    if (block.type === "example_answers") {
+      if ((block.items ?? []).length === 0) continue;
+      lines.push("你可以这样回答：");
+      for (const item of (block.items ?? []).slice(0, 4)) {
+        lines.push(`- ${item}`);
+      }
+      continue;
+    }
+    if (block.type === "micro_confirm_options") {
+      if (block.content) lines.push(block.content);
+      for (const option of (block.options ?? []).slice(0, 4)) {
+        lines.push(`- ${option.option_id}. ${option.label}`);
+      }
+      continue;
+    }
+    if (block.content?.trim()) lines.push(block.content.trim());
+  }
+  return lines.join("\n\n").trim();
+}
+
+function debugEventTypeLabel(eventType: DebugEvent["event_type"]): string {
+  if (eventType === "understanding_summary") return "理解";
+  if (eventType === "state_update") return "状态更新";
+  if (eventType === "coverage_summary") return "覆盖评估";
+  if (eventType === "gap_notice") return "缺口识别";
+  if (eventType === "help_explanation") return "帮助解释";
+  if (eventType === "help_examples") return "帮助示例";
+  if (eventType === "micro_confirm") return "微确认";
+  if (eventType === "transition_summary") return "过渡判断";
+  if (eventType === "next_question") return "下一动作";
+  return eventType;
+}
+
+function buildEventActionText(event: DebugEvent): string {
+  const content = event.payload.content?.trim();
+  if (content) return content;
+  if ((event.payload.items ?? []).length > 0) return `示例 ${event.payload.items?.length ?? 0} 条`;
+  if ((event.payload.options ?? []).length > 0) return `确认选项 ${(event.payload.options ?? []).length} 个`;
+  return "已执行";
+}
+
+function buildEventMetaText(event: DebugEvent): string {
+  const parts: string[] = [];
+  const time = new Date(event.created_at);
+  if (!Number.isNaN(time.getTime())) parts.push(`time ${time.toLocaleTimeString("zh-CN", { hour12: false })}`);
+  if (event.payload.dimension_id) parts.push(`dimension ${event.payload.dimension_id}`);
+  if (event.payload.mode) parts.push(`mode ${event.payload.mode}`);
+  if ((event.payload.items ?? []).length > 0) parts.push(`items ${event.payload.items?.length ?? 0}`);
+  if ((event.payload.options ?? []).length > 0) parts.push(`options ${(event.payload.options ?? []).length}`);
+  return parts.join(" · ");
+}
+
+function compactTraceFromTurn(payload: TurnResponse): AgentTraceView {
+  const interactionEvent = (payload.events ?? []).find((event) => (event.payload.options ?? []).length > 0);
+  const pending = (payload.state.session.pending_commitments ?? []).map((item) => ({
+    id: item.id,
+    type: item.type,
+    status: item.status ?? "pending",
+    question_id: item.question_id,
+    dimension_id: item.dimension_id ?? null,
+  }));
+  return {
+    routed_intent: payload.routed_intent,
+    task_module: payload.state.runtime_meta?.last_task_module,
+    transition_reason: payload.state.runtime_meta?.last_transition_reason,
+    current_question_id: payload.state.session.current_question_id,
+    active_turn_index: payload.state.session.active_turn_index,
+    help_obstacle_layer: payload.state.runtime_meta?.last_help_obstacle_layer,
+    help_resolution_goal: payload.state.runtime_meta?.last_help_resolution_goal,
+    help_reconnect_target: payload.state.runtime_meta?.last_help_reconnect_target,
+    interaction_mode: interactionEvent?.payload.mode,
+    interaction_badge: interactionEvent?.payload.badge_label,
+    pending_commitments: pending,
+  };
+}
+
 const SESSION_STORAGE_KEY = "askmore_v2_session_id";
+
+const RUNTIME_PHASE_FALLBACK_LABELS: Record<AskmoreV2RuntimePhase, { zh: string; en: string }> = {
+  assemble_context: {
+    zh: "正在整理你刚刚提供的信息",
+    en: "Understanding your latest input",
+  },
+  route_intent: {
+    zh: "正在判断你现在最需要的帮助方式",
+    en: "Deciding the best response mode",
+  },
+  execute_task: {
+    zh: "正在执行本轮任务并更新状态",
+    en: "Executing this turn task and updating state",
+  },
+  build_response: {
+    zh: "正在组织清晰、自然的回复",
+    en: "Composing a clear and natural response",
+  },
+  persist_and_finalize: {
+    zh: "正在保存结果并完成这一轮",
+    en: "Saving this turn and finalizing",
+  },
+};
+
+const PHASE_MIN_RUNNING_MS = 680;
+const PHASE_SHRINK_MS = 320;
+const PHASE_CHECK_REVEAL_MS = 220;
+const PHASE_CHECK_HOLD_MS = 650;
+const PHASE_CHECK_HOLD_DONE_MS = 760;
+const PHASE_EXIT_MS = 220;
+const PHASE_INTER_GAP_MS = 140;
 
 export function AskmoreV2InterviewApp() {
   const [language, setLanguage] = useState<AskmoreV2Language>("zh");
@@ -288,6 +577,17 @@ export function AskmoreV2InterviewApp() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progressPanelSize, setProgressPanelSize] = useState<"compact" | "standard" | "expanded">("standard");
+  const [runtimeProgressItems, setRuntimeProgressItems] = useState<RuntimeProgressItem[]>([]);
+  const [runtimeFallbackHint, setRuntimeFallbackHint] = useState<string | null>(null);
+
+  const progressQueueRef = useRef<Array<{ phase: RuntimeProgressPhase; label: string }>>([]);
+  const activePhaseRef = useRef<RuntimeProgressPhase | null>(null);
+  const progressPhaseStartedAtRef = useRef<Partial<Record<RuntimeProgressPhase, number>>>({});
+  const progressPhaseDoneRequestedRef = useRef<Partial<Record<RuntimeProgressPhase, boolean>>>({});
+  const progressPhaseCompletingRef = useRef<Partial<Record<RuntimeProgressPhase, boolean>>>({});
+  const progressTimersRef = useRef<number[]>([]);
+  const progressReadyResolversRef = useRef<Array<() => void>>([]);
+  const activeTurnAbortRef = useRef<AbortController | null>(null);
 
   const orderedQuestions = useMemo(() => {
     return activeQuestions;
@@ -346,8 +646,191 @@ export function AskmoreV2InterviewApp() {
   const debugEnabled = process.env.NEXT_PUBLIC_ASKMORE_V2_DEBUG === "1";
   const isSessionTransitioning = Boolean(switchingSessionId || deletingSessionId);
 
-  function appendChat(role: "assistant" | "user", content: string, responseBlocks?: ResponseBlock[]) {
-    setChatRows((prev) => [...prev, { id: `${Date.now()}-${Math.random()}`, role, content, responseBlocks }]);
+  function isAbortError(error: unknown): boolean {
+    if (!error) return false;
+    if (error instanceof DOMException && error.name === "AbortError") return true;
+    if (error instanceof Error && error.name === "AbortError") return true;
+    return false;
+  }
+
+  function resolvePhaseLabel(
+    phase: AskmoreV2RuntimePhase,
+    providedLabel: string | undefined,
+    lang: AskmoreV2Language,
+  ): string {
+    const trimmed = providedLabel?.trim();
+    if (trimmed) return trimmed;
+    const fallback = RUNTIME_PHASE_FALLBACK_LABELS[phase];
+    return lang === "zh" ? fallback.zh : fallback.en;
+  }
+
+  function clearProgressTimers() {
+    for (const timer of progressTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    progressTimersRef.current = [];
+  }
+
+  function resolveProgressReadyWaiters() {
+    if (activePhaseRef.current) return;
+    if (progressQueueRef.current.length > 0) return;
+    if (progressReadyResolversRef.current.length === 0) return;
+    for (const resolve of progressReadyResolversRef.current) resolve();
+    progressReadyResolversRef.current = [];
+  }
+
+  function resetRuntimeProgressState() {
+    clearProgressTimers();
+    progressQueueRef.current = [];
+    activePhaseRef.current = null;
+    progressPhaseStartedAtRef.current = {};
+    progressPhaseDoneRequestedRef.current = {};
+    progressPhaseCompletingRef.current = {};
+    setRuntimeProgressItems([]);
+    resolveProgressReadyWaiters();
+  }
+
+  function waitForProgressReady() {
+    if (!activePhaseRef.current && progressQueueRef.current.length === 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      progressReadyResolversRef.current.push(resolve);
+    });
+  }
+
+  async function waitForProgressReadyWithTimeout(timeoutMs = 6000) {
+    let timeoutHandle: number | null = null;
+    let timedOut = false;
+    await Promise.race([
+      waitForProgressReady(),
+      new Promise<void>((resolve) => {
+        timeoutHandle = window.setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, timeoutMs);
+      }),
+    ]);
+    if (timeoutHandle != null) {
+      window.clearTimeout(timeoutHandle);
+    }
+    if (timedOut) {
+      if (debugEnabled) {
+        console.warn("[askmore_v2_stream] progress_wait_timeout_force_reset", {
+          active_phase: activePhaseRef.current,
+          queued_phases: progressQueueRef.current.map((item) => item.phase),
+        });
+      }
+      resetRuntimeProgressState();
+    }
+  }
+
+  function updateCurrentPhaseStatus(status: RuntimeProgressItem["status"]) {
+    const current = activePhaseRef.current;
+    if (!current) return;
+    setRuntimeProgressItems((prev) => {
+      if (prev.length === 0) return prev;
+      return [{ ...prev[0], status }];
+    });
+  }
+
+  function maybeStartNextProgressPhase() {
+    if (activePhaseRef.current) return;
+    const next = progressQueueRef.current.shift();
+    if (!next) {
+      resolveProgressReadyWaiters();
+      return;
+    }
+    const doneWasAlreadyRequested = Boolean(progressPhaseDoneRequestedRef.current[next.phase]);
+    activePhaseRef.current = next.phase;
+    progressPhaseStartedAtRef.current[next.phase] = Date.now();
+    progressPhaseDoneRequestedRef.current[next.phase] = doneWasAlreadyRequested;
+    progressPhaseCompletingRef.current[next.phase] = false;
+    setRuntimeProgressItems([{ phase: next.phase, label: next.label, status: "running" }]);
+
+    // `done` may have arrived while this phase was still queued.
+    // In that case, complete it immediately after activation.
+    if (doneWasAlreadyRequested) {
+      const timer = window.setTimeout(() => {
+        markProgressDoneAndRemove(next.phase as AskmoreV2RuntimePhase);
+      }, 0);
+      progressTimersRef.current.push(timer);
+    }
+  }
+
+  function enqueueProgressPhase(phase: AskmoreV2RuntimePhase, label: string) {
+    const existsInQueue = progressQueueRef.current.some((item) => item.phase === phase);
+    if (activePhaseRef.current === phase || existsInQueue) return;
+    progressQueueRef.current.push({ phase, label });
+    maybeStartNextProgressPhase();
+  }
+
+  function markProgressDoneAndRemove(phase: AskmoreV2RuntimePhase) {
+    progressPhaseDoneRequestedRef.current[phase] = true;
+    if (activePhaseRef.current !== phase) return;
+    if (progressPhaseCompletingRef.current[phase]) return;
+    progressPhaseCompletingRef.current[phase] = true;
+
+    const startedAt = progressPhaseStartedAtRef.current[phase] ?? Date.now();
+    const elapsed = Date.now() - startedAt;
+    const waitToStartShrink = Math.max(0, PHASE_MIN_RUNNING_MS - elapsed);
+
+    const shrinkTimer = window.setTimeout(() => {
+      updateCurrentPhaseStatus("shrinking");
+
+      const checkedTimer = window.setTimeout(() => {
+        updateCurrentPhaseStatus("checked");
+        const holdMs = phase === "persist_and_finalize" ? PHASE_CHECK_HOLD_DONE_MS : PHASE_CHECK_HOLD_MS;
+
+        const holdTimer = window.setTimeout(() => {
+          updateCurrentPhaseStatus("exiting");
+
+          const exitTimer = window.setTimeout(() => {
+            setRuntimeProgressItems([]);
+            activePhaseRef.current = null;
+            delete progressPhaseStartedAtRef.current[phase];
+            delete progressPhaseDoneRequestedRef.current[phase];
+            delete progressPhaseCompletingRef.current[phase];
+
+            const gapTimer = window.setTimeout(() => {
+              maybeStartNextProgressPhase();
+            }, PHASE_INTER_GAP_MS);
+            progressTimersRef.current.push(gapTimer);
+            resolveProgressReadyWaiters();
+          }, PHASE_EXIT_MS);
+          progressTimersRef.current.push(exitTimer);
+        }, PHASE_CHECK_REVEAL_MS + holdMs);
+        progressTimersRef.current.push(holdTimer);
+      }, PHASE_SHRINK_MS);
+      progressTimersRef.current.push(checkedTimer);
+    }, waitToStartShrink);
+    progressTimersRef.current.push(shrinkTimer);
+  }
+
+  function abortActiveTurnIfNeeded() {
+    if (!activeTurnAbortRef.current) return;
+    activeTurnAbortRef.current.abort();
+    activeTurnAbortRef.current = null;
+    resetRuntimeProgressState();
+  }
+
+  function appendChat(
+    role: "assistant" | "user",
+    content: string,
+    params?: { responseBlocks?: ResponseBlock[]; events?: VisibleEvent[]; debugEvents?: DebugEvent[]; trace?: AgentTraceView },
+  ) {
+    setChatRows((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random()}`,
+        role,
+        content,
+        responseBlocks: params?.responseBlocks,
+        events: params?.events,
+        debugEvents: params?.debugEvents,
+        trace: params?.trace,
+      },
+    ]);
   }
 
   function persistSessionId(nextSessionId: string | null) {
@@ -363,6 +846,7 @@ export function AskmoreV2InterviewApp() {
   }
 
   function resetInterviewToIdle() {
+    abortActiveTurnIfNeeded();
     setSessionId(null);
     setFlowVersionId(null);
     setSessionState(null);
@@ -372,6 +856,7 @@ export function AskmoreV2InterviewApp() {
     setInputText("");
     setSummaryDialog(null);
     setSummaryLoading(false);
+    setRuntimeFallbackHint(null);
     setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
     persistSessionId(null);
   }
@@ -448,6 +933,18 @@ export function AskmoreV2InterviewApp() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(
+    () => () => {
+      abortActiveTurnIfNeeded();
+      clearProgressTimers();
+      if (progressReadyResolversRef.current.length > 0) {
+        for (const resolve of progressReadyResolversRef.current) resolve();
+        progressReadyResolversRef.current = [];
+      }
+    },
+    [],
+  );
+
   async function startInterview() {
     if (isSessionTransitioning) return;
     setStarting(true);
@@ -482,7 +979,144 @@ export function AskmoreV2InterviewApp() {
     }
   }
 
-  async function sendTurn(message: string, choice?: { dimension_id: string; option_id: string; option_label: string }) {
+  async function postTurn(payload: {
+    session_id: string;
+    client_turn_id: string;
+    user_message: string;
+    language: AskmoreV2Language;
+    choice?: {
+      dimension_id: string;
+      option_id: string;
+      option_label: string;
+      choice_kind?: "micro_confirm" | "follow_up_select";
+      source_event_id?: string;
+    };
+  }, signal?: AbortSignal) {
+    const response = await fetch("/api/askmore_v2/interview/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    const data = (await response.json()) as TurnResponse;
+    if (!response.ok) {
+      throw new Error(data.error ?? "Turn request failed");
+    }
+    return data;
+  }
+
+  async function streamTurn(payload: {
+    session_id: string;
+    client_turn_id: string;
+    user_message: string;
+    language: AskmoreV2Language;
+    choice?: {
+      dimension_id: string;
+      option_id: string;
+      option_label: string;
+      choice_kind?: "micro_confirm" | "follow_up_select";
+      source_event_id?: string;
+    };
+  }, signal?: AbortSignal): Promise<TurnResponse> {
+    const response = await fetch("/api/askmore_v2/interview/turn?stream=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    });
+
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      throw new Error(data.error ?? "Turn stream request failed");
+    }
+    if (!response.body) {
+      throw new Error("Streaming is not available");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalPayload: TurnResponse | null = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let event: TurnStreamEvent;
+        try {
+          event = JSON.parse(trimmed) as TurnStreamEvent;
+        } catch {
+          continue;
+        }
+        if (event.type === "phase") {
+          const label = resolvePhaseLabel(event.phase, event.label, language);
+          if (debugEnabled) {
+            console.log("[askmore_v2_stream] phase", {
+              phase: event.phase,
+              status: event.status,
+              label,
+            });
+          }
+          if (event.status === "start") {
+            enqueueProgressPhase(event.phase, label);
+          } else {
+            markProgressDoneAndRemove(event.phase);
+          }
+          continue;
+        }
+        if (event.type === "final") {
+          finalPayload = event.payload;
+          if (debugEnabled) {
+            console.log("[askmore_v2_stream] final_payload_received", {
+              turn_id: finalPayload.turn_id,
+              session_id: finalPayload.session_id,
+            });
+          }
+          continue;
+        }
+        if (event.type === "error") {
+          throw new Error(event.error || "Runtime stream failed");
+        }
+      }
+    }
+
+    const tail = buffer.trim();
+    if (tail) {
+      const event = JSON.parse(tail) as TurnStreamEvent;
+      if (event.type === "phase") {
+        const label = resolvePhaseLabel(event.phase, event.label, language);
+        if (event.status === "start") {
+          enqueueProgressPhase(event.phase, label);
+        } else {
+          markProgressDoneAndRemove(event.phase);
+        }
+      } else if (event.type === "final") {
+        finalPayload = event.payload;
+      } else if (event.type === "error") {
+        throw new Error(event.error || "Runtime stream failed");
+      }
+    }
+
+    await waitForProgressReadyWithTimeout();
+    if (!finalPayload) {
+      throw new Error("Turn stream ended before final payload");
+    }
+    return finalPayload;
+  }
+
+  async function sendTurn(message: string, choice?: {
+    dimension_id: string;
+    option_id: string;
+    option_label: string;
+    choice_kind?: "micro_confirm" | "follow_up_select";
+    source_event_id?: string;
+  }) {
     if (isSessionTransitioning) return;
     if (!sessionId) {
       setError(language === "zh" ? "请先开始访谈。" : "Please start interview first.");
@@ -491,51 +1125,76 @@ export function AskmoreV2InterviewApp() {
 
     setSending(true);
     setError(null);
+    setRuntimeFallbackHint(null);
+    resetRuntimeProgressState();
     appendChat("user", message);
+    const clientTurnId = crypto.randomUUID();
+    const requestPayload = {
+      session_id: sessionId,
+      client_turn_id: clientTurnId,
+      user_message: message,
+      language,
+      choice,
+    };
+    const controller = new AbortController();
+    activeTurnAbortRef.current = controller;
 
     try {
       if (debugEnabled) {
-        console.log("[askmore_v2_debug] turn_request", { sessionId, message, choice: choice ?? null });
+        console.log("[askmore_v2_debug] turn_request", {
+          sessionId,
+          message,
+          client_turn_id: clientTurnId,
+          choice: choice ?? null,
+        });
       }
-      const response = await fetch("/api/askmore_v2/interview/turn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          user_message: message,
-          language,
-          choice,
-        }),
-      });
-      const payload = (await response.json()) as TurnResponse;
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Turn request failed");
+      let payload: TurnResponse;
+      try {
+        payload = await streamTurn(requestPayload, controller.signal);
+      } catch (streamError) {
+        if (isAbortError(streamError)) throw streamError;
+        const fallbackMessage = language === "zh"
+          ? "流式连接波动，已切换稳定模式继续处理…"
+          : "Streaming was interrupted, switching to stable mode…";
+        setRuntimeFallbackHint(fallbackMessage);
+        resetRuntimeProgressState();
+        if (debugEnabled) {
+          console.warn("[askmore_v2_stream] fallback_to_blocking", {
+            reason: streamError instanceof Error ? streamError.message : String(streamError),
+          });
+        }
+        payload = await postTurn(requestPayload, controller.signal);
       }
 
       setSessionState(payload.state);
-      setTurnCount(payload.turn_count);
-      setInterviewStatus(payload.status);
+      setTurnCount((prev) => payload.state.session.active_turn_index ?? prev + 1);
+      setInterviewStatus(payload.state.session.finalized ? "completed" : "in_progress");
       if (debugEnabled) {
         console.log("[askmore_v2_debug] turn_response", payload);
       }
-      const shouldOpenSummaryDialog =
-        payload.suggested_next_action === "show_summary" &&
-        payload.next_question == null &&
-        Boolean(payload.summary_text);
-
-      if (shouldOpenSummaryDialog) {
-        setSummaryDialog({
-          mode: payload.status === "completed" ? "final" : "progressive",
-          summaryText: payload.summary_text ?? "",
-          report: payload.structured_report_json ?? null,
-        });
-      } else {
-        appendChat("assistant", payload.assistant_message, payload.response_blocks);
-      }
+      const renderedBlocks = eventsToRenderBlocks(payload.events ?? []);
+      const displayBlocks = renderedBlocks.length > 0 ? renderedBlocks : payload.response_blocks ?? [];
+      appendChat("assistant", composeAssistantTextFromBlocks(displayBlocks), {
+        responseBlocks: displayBlocks,
+        events: payload.events ?? [],
+        debugEvents: payload.debug_events ?? [],
+        trace: compactTraceFromTurn(payload),
+      });
       setInputText("");
     } catch (err) {
+      if (isAbortError(err)) {
+        if (debugEnabled) {
+          console.log("[askmore_v2_stream] turn_aborted");
+        }
+        return;
+      }
       setError(err instanceof Error ? err.message : "Turn request failed");
     } finally {
+      if (activeTurnAbortRef.current === controller) {
+        activeTurnAbortRef.current = null;
+      }
+      resetRuntimeProgressState();
+      setRuntimeFallbackHint(null);
       setSending(false);
     }
   }
@@ -592,20 +1251,24 @@ export function AskmoreV2InterviewApp() {
     }
   }
 
-  async function onMicroOptionSelect(params: {
+  async function onOptionSelect(params: {
     dimensionId: string;
     option: MicroConfirmOption;
+    choiceKind: "micro_confirm" | "follow_up_select";
+    sourceEventId?: string;
   }) {
     if (sending || interviewStatus === "completed" || isSessionTransitioning) return;
     if (!params.dimensionId) return;
     const display = `已选择：${params.option.label}`;
     if (debugEnabled) {
-      console.log("[askmore_v2_debug] micro_option_click", params);
+      console.log("[askmore_v2_debug] option_click", params);
     }
     await sendTurn(display, {
       dimension_id: params.dimensionId,
       option_id: params.option.option_id,
       option_label: params.option.label,
+      choice_kind: params.choiceKind,
+      source_event_id: params.sourceEventId,
     });
   }
 
@@ -629,6 +1292,9 @@ export function AskmoreV2InterviewApp() {
 
   async function handleSwitchSession(targetSessionId: string) {
     if (!targetSessionId || targetSessionId === sessionId || isSessionTransitioning) return;
+    if (sending) {
+      abortActiveTurnIfNeeded();
+    }
     setSwitchingSessionId(targetSessionId);
     setError(null);
     try {
@@ -644,6 +1310,9 @@ export function AskmoreV2InterviewApp() {
   async function handleDeleteSession(targetSessionId: string) {
     if (!targetSessionId || isSessionTransitioning) return;
     if (!confirm(`确定删除会话 ${targetSessionId.slice(0, 8)}... 吗？`)) return;
+    if (sending) {
+      abortActiveTurnIfNeeded();
+    }
 
     setDeletingSessionId(targetSessionId);
     setError(null);
@@ -835,60 +1504,144 @@ export function AskmoreV2InterviewApp() {
                 </div>
               )}
 
-              {chatRows.map((row) => (
-                <article key={row.id} className={`v2-msg ${row.role === "assistant" ? "assistant" : "user"}`}>
-                  <div className="v2-msg-role">{row.role === "assistant" ? "AI" : "你"}</div>
-                  <div className="v2-msg-content">
-                    {row.role === "assistant" && row.responseBlocks && row.responseBlocks.length > 0 ? (
-                      <div className="v2-block-list">
-                        {row.responseBlocks.map((block, idx) => (
-                          <div key={`${row.id}-${block.type}-${idx}`} className={`v2-block v2-block-${block.type}`}>
-                            {block.type === "example_answers" && Array.isArray(block.items) ? (
-                              <>
-                                <div className="v2-block-title">你可以这样回答：</div>
-                                <ul className="v2-inline-list">
-                                  {block.items.map((item, itemIdx) => (
-                                    <li key={`${row.id}-ex-${itemIdx}`}>{item}</li>
-                                  ))}
-                                </ul>
-                              </>
-                            ) : block.type === "micro_confirm_options" && Array.isArray(block.options) ? (
-                              <div className="v2-micro-card">
-                                <div className="v2-micro-title">快速确认一下，更接近哪一个？</div>
-                                {block.content && <div className="v2-micro-context">当前确认点：{block.content}</div>}
-                                <div className="v2-micro-options">
-                                  {block.options.map((option) => (
-                                    <button
-                                      key={`${row.id}-opt-${option.option_id}`}
-                                      className="v2-micro-option"
-                                      type="button"
-                                      disabled={sending || interviewStatus === "completed" || isSessionTransitioning}
-                                      onClick={() => void onMicroOptionSelect({
-                                        dimensionId: block.dimension_id || "",
-                                        option,
-                                      })}
-                                    >
-                                      <span className="v2-micro-option-id">{option.option_id}</span>
-                                      <span>{option.label}</span>
-                                    </button>
-                                  ))}
+              {chatRows.map((row) => {
+                const renderedBlocks = row.role === "assistant" && Array.isArray(row.events) && row.events.length > 0
+                  ? eventsToRenderBlocks(row.events)
+                  : row.responseBlocks ?? [];
+                return (
+                  <article key={row.id} className={`v2-msg ${row.role === "assistant" ? "assistant" : "user"}`}>
+                    <div className="v2-msg-role">{row.role === "assistant" ? "AI" : "你"}</div>
+                    <div className="v2-msg-content">
+                      {row.role === "assistant" && renderedBlocks.length > 0 ? (
+                        <div className="v2-block-list">
+                          {renderedBlocks.map((block, idx) => (
+                            <div key={`${row.id}-${block.type}-${idx}`} className={`v2-block v2-block-${block.type}`}>
+                              {block.type === "example_answers" && Array.isArray(block.items) ? (
+                                <>
+                                  <div className="v2-block-title">你可以这样回答：</div>
+                                  <ul className="v2-inline-list">
+                                    {block.items.map((item, itemIdx) => (
+                                      <li key={`${row.id}-ex-${itemIdx}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </>
+                              ) : block.type === "micro_confirm_options" && Array.isArray(block.options) ? (
+                                <div className={`v2-micro-card ${block.mode === "follow_up_select" ? "followup" : "confirm"}`}>
+                                  <div className="v2-micro-head">
+                                    <div className="v2-micro-title">
+                                      {block.mode === "follow_up_select" ? "普通追问，先选一个最接近的" : "快速确认一下，更接近哪一个？"}
+                                    </div>
+                                    <span className={`v2-micro-badge ${block.mode === "follow_up_select" ? "followup" : "confirm"}`}>
+                                      {block.badge_label ?? (block.mode === "follow_up_select" ? "普通追问" : "快速确认")}
+                                    </span>
+                                  </div>
+                                  {block.content && <div className="v2-micro-context">{block.content}</div>}
+                                  <div className="v2-micro-options">
+                                    {block.options.map((option) => (
+                                      <button
+                                        key={`${row.id}-opt-${option.option_id}`}
+                                        className={`v2-micro-option ${block.mode === "follow_up_select" ? "followup" : "confirm"}`}
+                                        type="button"
+                                        disabled={sending || interviewStatus === "completed" || isSessionTransitioning}
+                                        onClick={() => void onOptionSelect({
+                                          dimensionId: block.dimension_id || "",
+                                          option,
+                                          choiceKind: block.mode === "follow_up_select" ? "follow_up_select" : "micro_confirm",
+                                          sourceEventId: block.source_event_id,
+                                        })}
+                                      >
+                                        <span className={`v2-micro-option-id ${block.mode === "follow_up_select" ? "followup" : "confirm"}`}>
+                                          {option.option_id}
+                                        </span>
+                                        <span>{option.label}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {block.allow_free_text !== false && (
+                                    <div className="v2-micro-tip">以上都不对的话，直接输入你的描述也可以。</div>
+                                  )}
                                 </div>
-                                {block.allow_free_text !== false && (
-                                  <div className="v2-micro-tip">以上都不对的话，直接输入你的描述也可以。</div>
-                                )}
-                              </div>
-                            ) : (
-                              <div>{block.content}</div>
+                              ) : (
+                                <div>{block.content}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        row.content
+                      )}
+                      {row.role === "assistant" && row.trace && (
+                        <div className="v2-agent-trace">
+                          <div className="v2-agent-trace-head">Agent 过程</div>
+                          <div className="v2-agent-trace-meta">
+                            <span className="v2-agent-chip">intent: {row.trace.routed_intent.intent}</span>
+                            <span className="v2-agent-chip">conf: {row.trace.routed_intent.confidence.toFixed(2)}</span>
+                            <span className="v2-agent-chip">module: {row.trace.task_module ?? "-"}</span>
+                            <span className="v2-agent-chip">turn: {row.trace.active_turn_index ?? "-"}</span>
+                            <span className="v2-agent-chip">q: {row.trace.current_question_id ?? "-"}</span>
+                            {row.trace.help_obstacle_layer && (
+                              <span className="v2-agent-chip">help_obstacle: {row.trace.help_obstacle_layer}</span>
+                            )}
+                            {row.trace.help_resolution_goal && (
+                              <span className="v2-agent-chip">help_goal: {row.trace.help_resolution_goal}</span>
+                            )}
+                            {row.trace.help_reconnect_target && (
+                              <span className="v2-agent-chip">reconnect_gap: {row.trace.help_reconnect_target}</span>
+                            )}
+                            {row.trace.interaction_mode && (
+                              <span className="v2-agent-chip">interaction_mode: {row.trace.interaction_mode}</span>
+                            )}
+                            {row.trace.interaction_badge && (
+                              <span className="v2-agent-chip">interaction_badge: {row.trace.interaction_badge}</span>
                             )}
                           </div>
-                        ))}
+                          <div className="v2-agent-trace-reason">
+                            决策原因：{row.trace.transition_reason ?? row.trace.routed_intent.rationale ?? "-"}
+                          </div>
+                          {Array.isArray(row.debugEvents) && row.debugEvents.length > 0 && (
+                            <div className="v2-agent-trace-steps">
+                              {row.debugEvents.map((event, idx) => (
+                                <div key={`${row.id}-event-${event.event_id}`} className="v2-agent-step">
+                                  <span className="v2-agent-step-index">{idx + 1}</span>
+                                  <span className="v2-agent-step-label">{debugEventTypeLabel(event.event_type)}</span>
+                                  <span className="v2-agent-step-text">{buildEventActionText(event)}</span>
+                                  <span className="v2-agent-step-meta">{buildEventMetaText(event)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="v2-agent-trace-commitments">
+                            <strong>Commitments:</strong>{" "}
+                            {row.trace.pending_commitments.length === 0
+                              ? "none"
+                              : row.trace.pending_commitments
+                                  .map((item) => `${item.type}:${item.status}${item.dimension_id ? `(${item.dimension_id})` : ""}`)
+                                  .join(" | ")}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+
+              {sending && (
+                <article className="v2-msg assistant v2-msg-loading">
+                  <div className="v2-msg-role">AI</div>
+                  <div className="v2-msg-content">
+                    {runtimeFallbackHint && <div className="v2-runtime-fallback-hint">{runtimeFallbackHint}</div>}
+                    {runtimeProgressItems.length > 0 ? (
+                      <div className="v2-runtime-progress-wrap">
+                        <AgentRuntimeProgress items={runtimeProgressItems} />
                       </div>
                     ) : (
-                      row.content
+                      <div className="v2-runtime-loading-inline">
+                        {language === "zh" ? "正在处理这一轮…" : "Processing this turn…"}
+                      </div>
                     )}
                   </div>
                 </article>
-              ))}
+              )}
             </div>
 
             <form className="v2-input-wrap" onSubmit={onSubmit}>
@@ -1403,6 +2156,26 @@ export function AskmoreV2InterviewApp() {
         .v2-msg-content {
           color: var(--color-text);
         }
+        .v2-msg-loading {
+          background: #fff;
+          border-style: dashed;
+        }
+        .v2-runtime-progress-wrap {
+          padding-top: 2px;
+        }
+        .v2-runtime-loading-inline {
+          font-size: 12px;
+          color: var(--color-muted);
+        }
+        .v2-runtime-fallback-hint {
+          font-size: 11px;
+          color: #92400e;
+          border-radius: 8px;
+          border: 1px solid #fcd34d;
+          background: #fffbeb;
+          padding: 6px 8px;
+          margin-bottom: 8px;
+        }
         .v2-block-list {
           display: flex;
           flex-direction: column;
@@ -1430,10 +2203,37 @@ export function AskmoreV2InterviewApp() {
           flex-direction: column;
           gap: 8px;
         }
+        .v2-micro-card.followup {
+          border: 1px solid rgba(180, 108, 2, 0.34);
+          background: rgba(245, 158, 11, 0.08);
+        }
+        .v2-micro-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
         .v2-micro-title {
           font-size: 12px;
           font-weight: 700;
           color: var(--color-text);
+        }
+        .v2-micro-badge {
+          font-size: 11px;
+          font-weight: 700;
+          border-radius: 999px;
+          padding: 2px 8px;
+          white-space: nowrap;
+        }
+        .v2-micro-badge.confirm {
+          border: 1px solid rgba(13, 123, 100, 0.36);
+          color: #065f46;
+          background: rgba(13, 123, 100, 0.12);
+        }
+        .v2-micro-badge.followup {
+          border: 1px solid rgba(180, 108, 2, 0.42);
+          color: #92400e;
+          background: rgba(245, 158, 11, 0.18);
         }
         .v2-micro-options {
           display: flex;
@@ -1449,6 +2249,9 @@ export function AskmoreV2InterviewApp() {
           line-height: 1.45;
           color: #1f2937;
         }
+        .v2-micro-card.followup .v2-micro-context {
+          border: 1px solid rgba(180, 108, 2, 0.28);
+        }
         .v2-micro-option {
           border: 1px solid rgba(13, 123, 100, 0.26);
           background: #fff;
@@ -1460,6 +2263,9 @@ export function AskmoreV2InterviewApp() {
           gap: 8px;
           color: var(--color-text);
           font-size: 12px;
+        }
+        .v2-micro-option.followup {
+          border: 1px solid rgba(180, 108, 2, 0.3);
         }
         .v2-micro-option:disabled {
           opacity: 0.6;
@@ -1478,9 +2284,82 @@ export function AskmoreV2InterviewApp() {
           font-weight: 700;
           flex-shrink: 0;
         }
+        .v2-micro-option-id.followup {
+          background: rgba(245, 158, 11, 0.2);
+          color: #92400e;
+        }
         .v2-micro-tip {
           font-size: 11px;
           color: var(--color-muted);
+        }
+        .v2-agent-trace {
+          margin-top: 10px;
+          border: 1px solid rgba(15, 23, 42, 0.12);
+          border-radius: 10px;
+          padding: 8px;
+          background: rgba(248, 250, 252, 0.78);
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .v2-agent-trace-head {
+          font-size: 11px;
+          font-weight: 700;
+          color: #334155;
+        }
+        .v2-agent-trace-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .v2-agent-chip {
+          font-size: 11px;
+          color: #0f172a;
+          border: 1px solid rgba(148, 163, 184, 0.5);
+          background: #fff;
+          border-radius: 999px;
+          padding: 2px 8px;
+        }
+        .v2-agent-trace-reason {
+          font-size: 11px;
+          color: #475569;
+          line-height: 1.4;
+        }
+        .v2-agent-trace-steps {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .v2-agent-step {
+          display: grid;
+          grid-template-columns: 18px 64px 1fr;
+          gap: 6px;
+          align-items: start;
+          font-size: 11px;
+          color: #1f2937;
+        }
+        .v2-agent-step-index {
+          color: #64748b;
+          font-weight: 700;
+        }
+        .v2-agent-step-label {
+          color: #0f766e;
+          font-weight: 600;
+        }
+        .v2-agent-step-text {
+          color: #1e293b;
+          word-break: break-word;
+        }
+        .v2-agent-step-meta {
+          grid-column: 3;
+          color: #64748b;
+          font-size: 10px;
+          line-height: 1.35;
+        }
+        .v2-agent-trace-commitments {
+          font-size: 11px;
+          color: #475569;
+          line-height: 1.4;
         }
         .v2-input-wrap {
           border-top: 1px solid var(--color-line);

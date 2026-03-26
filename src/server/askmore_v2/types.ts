@@ -5,6 +5,7 @@ export type AskmoreV2QuestionDifficulty = "low" | "medium" | "high";
 export type AskmoreV2AnswerStatus = "empty" | "partial" | "completed" | "skipped";
 export type AskmoreV2TurnAnswerStatus = "complete" | "partial" | "off_topic";
 export type AskmoreV2NextAction = "advance_to_next_question" | "ask_clarification" | "show_summary" | "end_interview";
+export type AskmoreV2Intent = "answer_question" | "ask_for_help" | "clarify_meaning" | "other_discussion";
 export type AskmoreV2SelectionMode = "use_original" | "use_ai_refined" | "custom_manual";
 export type AskmoreV2NodeStatus = "not_started" | "partial" | "complete";
 export type AskmoreV2DimensionPriority = "must" | "optional";
@@ -25,6 +26,12 @@ export type AskmoreV2PlannerAction =
   | "offer_early_summary"
   | "end_interview";
 export type AskmoreV2AnswerQuality = "clear" | "usable" | "vague" | "off_topic";
+export type AskmoreV2HelpObstacleLayer = "concept" | "observation" | "judgement" | "expression" | "scope";
+export type AskmoreV2HelpResolutionGoal =
+  | "identify_behavior_signal"
+  | "estimate_frequency"
+  | "describe_duration"
+  | "describe_timeline";
 
 export interface AskmoreV2QuestionEvaluation {
   is_too_broad: boolean;
@@ -176,10 +183,28 @@ export interface AskmoreV2StructuredKnowledgeField {
   updated_at: string;
 }
 
+export interface AskmoreV2PendingCommitment {
+  id: string;
+  type: "micro_confirm" | "pending_correction" | "follow_up";
+  status?: "pending" | "resolved" | "expired";
+  question_id: string | null;
+  dimension_id?: string | null;
+  note?: string | null;
+  created_at: string;
+  expires_at?: string | null;
+  resolved_at?: string | null;
+  expired_at?: string | null;
+  resolution_note?: string | null;
+  resolved_turn_index?: number | null;
+}
+
 export interface AskmoreV2SessionState {
   session: {
     current_question_id: string | null;
     current_sub_question_index: number;
+    active_turn_index?: number;
+    pending_intent?: AskmoreV2Intent | null;
+    pending_commitments?: AskmoreV2PendingCommitment[];
     summary_generated: boolean;
     finalized: boolean;
     pending_end_confirmation: boolean;
@@ -194,6 +219,24 @@ export interface AskmoreV2SessionState {
   structured_knowledge: Record<string, AskmoreV2StructuredKnowledgeField>;
   latest_summary_text: string | null;
   latest_structured_report: Record<string, unknown> | null;
+  runtime_meta?: {
+    last_task_module?: string;
+    last_transition_reason?: string;
+    latest_visible_summary?: string;
+    last_help_obstacle_layer?: AskmoreV2HelpObstacleLayer;
+    last_help_resolution_goal?: AskmoreV2HelpResolutionGoal;
+    last_help_reconnect_target?: string;
+  };
+}
+
+export interface AskmoreV2HelpCoachingOutput {
+  obstacle_layer: AskmoreV2HelpObstacleLayer;
+  resolution_goal: AskmoreV2HelpResolutionGoal;
+  direct_help_answer: string;
+  downgraded_question: string;
+  explanatory_examples: string[];
+  answer_examples: string[];
+  reconnect_prompt: string;
 }
 
 export interface AskmoreV2Session {
@@ -201,6 +244,7 @@ export interface AskmoreV2Session {
   flow_version_id: string;
   status: AskmoreV2SessionStatus;
   turn_count: number;
+  state_version: number;
   state_jsonb: AskmoreV2SessionState;
   created_at: string;
   updated_at: string;
@@ -210,6 +254,7 @@ export interface AskmoreV2SessionListItem {
   id: string;
   status: AskmoreV2SessionStatus;
   turn_count: number;
+  state_version?: number;
   flow_version_id: string;
   created_at: string;
   updated_at: string;
@@ -277,12 +322,19 @@ export interface AskmoreV2MicroConfirmOption {
   option_id: string;
   label: string;
   normalized_value: string;
+  value?: string;
+  rationale?: string;
 }
+
+export type AskmoreV2ChoiceKind = "micro_confirm" | "follow_up_select";
+export type AskmoreV2InteractionMode = AskmoreV2ChoiceKind;
 
 export interface AskmoreV2TurnChoiceInput {
   dimension_id: string;
   option_id: string;
   option_label: string;
+  choice_kind?: AskmoreV2ChoiceKind;
+  source_event_id?: string;
 }
 
 export interface AskmoreV2DialoguePlannerOutput {
@@ -325,8 +377,132 @@ export interface AskmoreV2ResponseBlock {
   options?: AskmoreV2MicroConfirmOption[];
   dimension_id?: string;
   allow_free_text?: boolean;
+  mode?: AskmoreV2InteractionMode;
+  badge_label?: string;
+  source_event_id?: string;
 }
 
 export interface AskmoreV2ResponseComposerOutput {
   response_blocks: AskmoreV2ResponseBlock[];
+}
+
+export type AskmoreV2InternalEventType =
+  | "understanding_summary"
+  | "state_update"
+  | "coverage_summary"
+  | "gap_notice"
+  | "help_explanation"
+  | "help_examples"
+  | "micro_confirm"
+  | "transition_summary"
+  | "next_question";
+
+export interface AskmoreV2InternalEvent {
+  event_id: string;
+  event_type: AskmoreV2InternalEventType;
+  created_at: string;
+  visible: boolean;
+  payload: {
+    content?: string;
+    items?: string[];
+    options?: AskmoreV2MicroConfirmOption[];
+    dimension_id?: string;
+    allow_free_text?: boolean;
+    mode?: AskmoreV2InteractionMode;
+    badge_label?: string;
+  };
+}
+
+export type AskmoreV2PresentationEventType =
+  | "understanding"
+  | "acknowledgement"
+  | "why_this_matters"
+  | "gentle_gap_prompt"
+  | "help_explanation"
+  | "help_examples"
+  | "micro_confirm"
+  | "transition"
+  | "next_step";
+
+export interface AskmoreV2VisibleEvent {
+  event_id: string;
+  event_type: AskmoreV2PresentationEventType;
+  created_at: string;
+  visible: boolean;
+  payload: {
+    content?: string;
+    items?: string[];
+    options?: AskmoreV2MicroConfirmOption[];
+    dimension_id?: string;
+    allow_free_text?: boolean;
+    mode?: AskmoreV2InteractionMode;
+    badge_label?: string;
+  };
+}
+
+export type AskmoreV2EventChannel = "internal" | "visible";
+export type AskmoreV2DebugEvent = AskmoreV2InternalEvent;
+export type AskmoreV2TurnEvent = AskmoreV2InternalEvent | AskmoreV2VisibleEvent;
+
+export interface AskmoreV2RoutedIntent {
+  intent: AskmoreV2Intent;
+  confidence: number;
+  rationale?: string;
+}
+
+export interface AskmoreV2NextQuestionPayload {
+  question_id: string | null;
+  question_text: string;
+}
+
+export interface AskmoreV2TurnResult {
+  session_id: string;
+  turn_id: string;
+  state: AskmoreV2SessionState;
+  routed_intent: AskmoreV2RoutedIntent;
+  events: AskmoreV2VisibleEvent[];
+  debug_events: AskmoreV2DebugEvent[];
+  // Compatibility projection only. Must be derived from `events` and must not carry business-only data.
+  response_blocks: AskmoreV2ResponseBlock[];
+  next_question?: AskmoreV2NextQuestionPayload | null;
+}
+
+export type AskmoreV2RuntimePhase =
+  | "assemble_context"
+  | "route_intent"
+  | "execute_task"
+  | "build_response"
+  | "persist_and_finalize";
+
+export interface AskmoreV2RuntimePhaseProgressEvent {
+  phase: AskmoreV2RuntimePhase;
+  status: "start" | "done";
+  label?: string;
+}
+
+export type AskmoreV2PhaseProgressCallback = (event: AskmoreV2RuntimePhaseProgressEvent) => void;
+
+export type AskmoreV2TurnStreamEvent =
+  | {
+      type: "phase";
+      phase: AskmoreV2RuntimePhase;
+      status: "start" | "done";
+      label?: string;
+    }
+  | {
+      type: "final";
+      payload: AskmoreV2TurnResult;
+    }
+  | {
+      type: "error";
+      error: string;
+      code?: string;
+    };
+
+export interface AskmoreV2TurnCommitRecord {
+  session_id: string;
+  client_turn_id: string;
+  turn_id: string;
+  response_jsonb: AskmoreV2TurnResult;
+  created_at: string;
 }

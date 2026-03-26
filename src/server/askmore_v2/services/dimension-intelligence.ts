@@ -138,8 +138,8 @@ const GLOBAL_DIMENSION_ALIASES: Record<string, string[]> = {
   onset_timing: ["onset", "start_time", "started", "begin", "起始时间", "开始时间", "最近才开始", "一直以来", "常年"],
   stress_response: ["stress", "anxiety", "hide", "hiding", "应激反应"],
   skin_lesion: ["hair_loss", "bald_spot", "itch", "皮肤症状"],
-  urination_location: ["location", "where", "排尿位置", "尿在哪里"],
-  frequency: ["freq", "times", "频次"],
+  urination_location: ["location", "where", "排尿位置", "尿在哪里", "位置分布", "排泄位置", "尿尿位置"],
+  frequency: ["freq", "times", "频次", "频率", "每周几次", "每周次数", "一周几次"],
 };
 
 function sanitizeToken(value: string): string {
@@ -266,6 +266,13 @@ function collectDimensionAliases(currentNode: AskmoreV2QuestionNode): Record<str
     for (const token of splitEnglishTokens(dimension.label)) {
       const normalized = sanitizeToken(token);
       if (normalized.length >= 3) map[normalized] = dimId;
+    }
+
+    const canonicalKeywords = CANONICAL_DIMENSION_KEYWORDS[dimId] ?? [];
+    for (const keyword of canonicalKeywords) {
+      const normalizedKeyword = sanitizeToken(keyword);
+      if (!normalizedKeyword) continue;
+      map[normalizedKeyword] = dimId;
     }
   }
 

@@ -7,7 +7,10 @@ import {
   AskmoreV2QuestionNode,
   AskmoreV2TurnExtractorOutput,
 } from "@/server/askmore_v2/types";
-import { normalizeDimensionKey } from "@/server/askmore_v2/services/dimension-intelligence";
+import {
+  dimensionMentionSignal,
+  normalizeDimensionKey,
+} from "@/server/askmore_v2/services/dimension-intelligence";
 
 const schema = z.object({
   facts_extracted: z.record(
@@ -41,6 +44,33 @@ function classifyEffortSignal(text: string): AskmoreV2TurnExtractorOutput["user_
   if (length < 8) return "low";
   if (length > 60) return "high";
   return "normal";
+}
+
+function isQuestionLike(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /[?？]/.test(trimmed) || /(怎么|什么|为何|为什么|如何|which|what|why|how)/i.test(trimmed);
+}
+
+function looksLikeClarificationQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (!isQuestionLike(trimmed)) return false;
+  return /(你问的是|你是问|是.+还是|还是.+还是|什么意思|怎么答|哪一个|which one|did you mean)/i.test(trimmed);
+}
+
+function isShortDirectAnswer(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (isQuestionLike(trimmed)) return false;
+  if (trimmed.length > 24) return false;
+  return /[^\s]/.test(trimmed);
+}
+
+function isBinaryStyleAnswer(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return /^(是|不是|有|没有|会|不会|正常|异常|没|无|对|不对|好|不好|yes|no|none|normal|abnormal)[。.!！？?？]?$/i.test(trimmed);
 }
 
 function computeMissingDimensions(params: {
@@ -110,20 +140,83 @@ function buildFallback(params: {
   currentNode: AskmoreV2QuestionNode;
   nodeState: AskmoreV2NodeRuntimeState;
   userMessage: string;
+  hintDimensionId?: string | null;
 }): AskmoreV2TurnExtractorOutput {
   const quality = classifyAnswerQuality(params.userMessage);
   const effort = classifyEffortSignal(params.userMessage);
+
+  const snippet = params.userMessage.trim();
+  const clarificationLike = looksLikeClarificationQuestion(snippet);
+  const unresolvedDimensions = params.currentNode.target_dimensions.filter(
+    (item) => Number(params.nodeState.dimension_confidence[item.id] ?? 0) < 0.6,
+  );
+  const unresolvedSet = new Set(unresolvedDimensions.map((item) => item.id));
+  const hasHintDimension =
+    Boolean(params.hintDimensionId)
+    && Boolean(params.hintDimensionId && unresolvedSet.has(params.hintDimensionId));
+
+  const mentionCandidates: Array<{ id: string; strong: boolean; source: "signal" | "hint" }> = clarificationLike
+    ? []
+    : unresolvedDimensions
+      .map((dimension) => {
+        const signal = dimensionMentionSignal({
+          currentNode: params.currentNode,
+          dimensionId: dimension.id,
+          text: params.userMessage,
+        });
+        if (!signal.mentioned) return null;
+        return {
+          id: dimension.id,
+          strong: signal.strong,
+          source: "signal" as const,
+        };
+      })
+      .filter((item): item is { id: string; strong: boolean; source: "signal" } => Boolean(item))
+      .sort((a, b) => Number(b.strong) - Number(a.strong))
+      .slice(0, 2);
+
+  if (
+    hasHintDimension
+    && !clarificationLike
+    && !mentionCandidates.some((item) => item.id === params.hintDimensionId)
+  ) {
+    mentionCandidates.unshift({
+      id: params.hintDimensionId!,
+      strong: isShortDirectAnswer(snippet) || isBinaryStyleAnswer(snippet),
+      source: "hint",
+    });
+  }
+
+  const mentionFacts: AskmoreV2TurnExtractorOutput["facts_extracted"] = {};
+  for (const hit of mentionCandidates) {
+    const hintConfidence = isBinaryStyleAnswer(snippet) || isShortDirectAnswer(snippet)
+      ? 0.84
+      : quality === "clear" || quality === "usable"
+      ? 0.72
+      : 0.58;
+    const baseConfidence = hit.strong ? 0.74 : 0.56;
+    const confidence = hit.source === "hint"
+      ? hintConfidence
+      : baseConfidence;
+    mentionFacts[hit.id] = {
+      value: snippet,
+      evidence: snippet.slice(0, 120),
+      confidence: Math.max(0.3, Math.min(0.92, confidence)),
+    };
+  }
 
   const firstMissing = params.currentNode.target_dimensions.find(
     (item) => Number(params.nodeState.dimension_confidence[item.id] ?? 0) < 0.6,
   );
 
   const facts: AskmoreV2TurnExtractorOutput["facts_extracted"] =
-    firstMissing && quality !== "off_topic"
+    Object.keys(mentionFacts).length > 0
+      ? mentionFacts
+      : firstMissing && quality !== "off_topic" && !clarificationLike
       ? {
           [firstMissing.id]: {
-            value: params.userMessage.trim(),
-            evidence: params.userMessage.trim().slice(0, 120),
+            value: snippet,
+            evidence: snippet.slice(0, 120),
             confidence: quality === "clear" ? 0.78 : quality === "usable" ? 0.64 : 0.42,
           },
         }
@@ -168,6 +261,7 @@ export async function extractTurnFacts(params: {
   currentNode: AskmoreV2QuestionNode;
   nodeState: AskmoreV2NodeRuntimeState;
   userMessage: string;
+  hintDimensionId?: string | null;
 }): Promise<AskmoreV2TurnExtractorOutput> {
   try {
     const result = await generateModelObject({
@@ -185,7 +279,22 @@ export async function extractTurnFacts(params: {
       currentNode: params.currentNode,
       rawFacts: result.facts_extracted,
     });
-    const facts = normalized.facts;
+    const hasNormalizedFacts = Object.keys(normalized.facts).length > 0;
+    const localQuality = classifyAnswerQuality(params.userMessage);
+    const allowFallback =
+      result.answer_quality !== "off_topic"
+      || localQuality !== "off_topic"
+      || Boolean(params.hintDimensionId);
+    const fallbackFromSignals = !hasNormalizedFacts && allowFallback
+      ? buildFallback({
+          language: params.language,
+          currentNode: params.currentNode,
+          nodeState: params.nodeState,
+          userMessage: params.userMessage,
+          hintDimensionId: params.hintDimensionId ?? null,
+        }).facts_extracted
+      : {};
+    const facts = hasNormalizedFacts ? normalized.facts : fallbackFromSignals;
     const missing = computeMissingDimensions({
       currentNode: params.currentNode,
       nodeState: params.nodeState,
@@ -194,10 +303,12 @@ export async function extractTurnFacts(params: {
 
     return {
       facts_extracted: facts,
-      updated_dimensions: result.updated_dimensions.filter((id) => Boolean(facts[id])),
+      updated_dimensions: Object.keys(facts),
       missing_dimensions: missing,
       unanswered_dimensions: missing,
-      answer_quality: result.answer_quality,
+      answer_quality: hasNormalizedFacts || Object.keys(fallbackFromSignals).length === 0
+        ? result.answer_quality
+        : localQuality,
       user_effort_signal: result.user_effort_signal,
       contradiction_detected: result.contradiction_detected,
       candidate_hypothesis: result.candidate_hypothesis,
@@ -206,6 +317,9 @@ export async function extractTurnFacts(params: {
       normalization_hits: normalized.normalizationHits,
     };
   } catch {
-    return buildFallback(params);
+    return buildFallback({
+      ...params,
+      hintDimensionId: params.hintDimensionId ?? null,
+    });
   }
 }

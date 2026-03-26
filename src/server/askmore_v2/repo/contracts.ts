@@ -1,7 +1,10 @@
 import {
   AskmoreV2FlowVersion,
+  AskmoreV2EventChannel,
   AskmoreV2Message,
   AskmoreV2Session,
+  AskmoreV2TurnCommitRecord,
+  AskmoreV2TurnEvent,
 } from "@/server/askmore_v2/types";
 
 export interface AskmoreV2Repository {
@@ -19,4 +22,24 @@ export interface AskmoreV2Repository {
 
   addMessage(message: AskmoreV2Message): Promise<void>;
   listMessages(sessionId: string, limit?: number): Promise<AskmoreV2Message[]>;
+
+  addTurnEvents(params: {
+    session_id: string;
+    turn_id: string;
+    channel: AskmoreV2EventChannel;
+    events: AskmoreV2TurnEvent[];
+  }): Promise<void>;
+  listTurnEvents(
+    sessionId: string,
+    turnId?: string,
+    channel?: AskmoreV2EventChannel,
+  ): Promise<AskmoreV2TurnEvent[]>;
+  getTurnEventById(
+    sessionId: string,
+    eventId: string,
+    channel?: AskmoreV2EventChannel,
+  ): Promise<AskmoreV2TurnEvent | null>;
+
+  getTurnCommit(sessionId: string, clientTurnId: string): Promise<AskmoreV2TurnCommitRecord | null>;
+  createTurnCommit(record: AskmoreV2TurnCommitRecord): Promise<void>;
 }

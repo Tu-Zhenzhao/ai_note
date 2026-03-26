@@ -1471,6 +1471,7 @@ export async function startAskmoreV2Interview(params: {
     flow_version_id: activeFlow.id,
     status: "in_progress",
     turn_count: 0,
+    state_version: 1,
     state_jsonb: state,
     created_at: now,
     updated_at: now,
@@ -1527,12 +1528,22 @@ export async function generateAskmoreV2Summary(params: {
   return summary;
 }
 
+/**
+ * Legacy turn runtime kept only for compatibility tests and migration reference.
+ * Main turn path is SessionRuntimeManager -> SessionRun.executeTurn.
+ * No new production logic should be added here.
+ */
 export async function handleAskmoreV2Turn(params: {
   sessionId: string;
   userMessage: string;
   language: AskmoreV2Language;
   choice?: AskmoreV2TurnChoiceInput;
 }) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      "ASKMORE_V2_LEGACY_TURN_PATH_DISABLED: use SessionRuntimeManager.enqueueTurn via /api/askmore_v2/interview/turn",
+    );
+  }
   const repo = getAskmoreV2Repository();
   const session = await repo.getSession(params.sessionId);
   if (!session) throw new Error("Session not found");
@@ -2646,3 +2657,5 @@ export async function handleAskmoreV2Turn(params: {
     status: session.status,
   };
 }
+
+export const handleAskmoreV2TurnLegacy = handleAskmoreV2Turn;
