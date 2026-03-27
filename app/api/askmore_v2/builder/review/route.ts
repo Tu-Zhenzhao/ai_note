@@ -21,6 +21,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid request payload" }, { status: 400 });
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const isAiReviewFailure = message.startsWith("AI review failed without fallback.");
+    const isDbUnavailable =
+      /database_url|postgres|schema is missing|connection timeout|timeout expired|could not connect|connection terminated/i.test(
+        message.toLowerCase(),
+      );
+    return NextResponse.json(
+      {
+        error: message,
+        code: isAiReviewFailure ? "AI_REVIEW_UPSTREAM_FAILED" : isDbUnavailable ? "DB_UNAVAILABLE" : "BAD_REQUEST",
+      },
+      { status: isAiReviewFailure ? 502 : isDbUnavailable ? 503 : 400 },
+    );
   }
 }

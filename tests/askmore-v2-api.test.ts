@@ -1229,7 +1229,7 @@ describe("askmore v2 API contracts", () => {
     expect(typeof second.state.runtime_meta?.last_help_reconnect_target === "string" || typeof second.state.runtime_meta?.last_help_reconnect_target === "undefined").toBe(true);
   });
 
-  test("ask_for_help resolves immediate confusion before reconnecting mainline", async () => {
+  test("clarify_meaning concept subtype resolves confusion before reconnecting mainline", async () => {
     const { POST: reviewPost } = await import("../app/api/askmore_v2/builder/review/route");
     const reviewResponse = await reviewPost(
       new NextRequest("http://localhost/api/askmore_v2/builder/review", {
@@ -1283,12 +1283,14 @@ describe("askmore v2 API contracts", () => {
       }),
     )).json();
 
-    expect(turnData.routed_intent.intent).toBe("ask_for_help");
+    expect(turnData.routed_intent.intent).toBe("clarify_meaning");
     const debugHelp = turnData.debug_events.find((event: { event_type: string }) => event.event_type === "help_explanation");
     expect(String(debugHelp?.payload?.content ?? "")).toContain("我先直接回应你这个疑问");
     expect(String(debugHelp?.payload?.content ?? "")).toContain("降级");
     expect(typeof turnData.next_question?.question_text).toBe("string");
     expect(String(turnData.next_question?.question_text ?? "")).toContain("最确定");
+    expect(turnData.events.some((event: { event_type: string }) => event.event_type === "micro_confirm")).toBe(false);
+    expect(turnData.state.runtime_meta?.last_clarify_subtype).toBe("concept_clarify");
   });
 
   test("micro_confirm is emitted by ClarificationAgent after answer handoff", async () => {
@@ -1363,4 +1365,5 @@ describe("askmore v2 API contracts", () => {
     expect(turnData.events.some((event: { event_type: string }) => event.event_type === "micro_confirm")).toBe(true);
     expect(turnData.state.runtime_meta?.last_task_module).toBe("ClarificationAgent");
   });
+
 });

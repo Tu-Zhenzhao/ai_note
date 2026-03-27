@@ -6,6 +6,7 @@ export type AskmoreV2AnswerStatus = "empty" | "partial" | "completed" | "skipped
 export type AskmoreV2TurnAnswerStatus = "complete" | "partial" | "off_topic";
 export type AskmoreV2NextAction = "advance_to_next_question" | "ask_clarification" | "show_summary" | "end_interview";
 export type AskmoreV2Intent = "answer_question" | "ask_for_help" | "clarify_meaning" | "other_discussion";
+export type AskmoreV2ClarifySubtype = "referent_clarify" | "concept_clarify" | "value_clarify";
 export type AskmoreV2SelectionMode = "use_original" | "use_ai_refined" | "custom_manual";
 export type AskmoreV2NodeStatus = "not_started" | "partial" | "complete";
 export type AskmoreV2DimensionPriority = "must" | "optional";
@@ -32,6 +33,18 @@ export type AskmoreV2HelpResolutionGoal =
   | "estimate_frequency"
   | "describe_duration"
   | "describe_timeline";
+export type AskmoreV2ReferentSource = "active_question" | "previous_question" | "structured_knowledge";
+export type AskmoreV2InsightDomain = "business" | "mental_health" | "pet_clinic";
+export type AskmoreV2InsightTrigger = "manual" | "auto_on_completed";
+export type AskmoreV2InsightConfidence = "low" | "medium" | "high";
+
+export interface AskmoreV2ConfirmedReferent {
+  question_id?: string | null;
+  dimension_id?: string | null;
+  label: string;
+  value: string;
+  source: AskmoreV2ReferentSource;
+}
 
 export interface AskmoreV2QuestionEvaluation {
   is_too_broad: boolean;
@@ -219,6 +232,8 @@ export interface AskmoreV2SessionState {
   structured_knowledge: Record<string, AskmoreV2StructuredKnowledgeField>;
   latest_summary_text: string | null;
   latest_structured_report: Record<string, unknown> | null;
+  latest_ai_thinking?: AskmoreV2AiThinkingResult | null;
+  ai_thinking_meta?: AskmoreV2InsightMeta | null;
   runtime_meta?: {
     last_task_module?: string;
     last_transition_reason?: string;
@@ -226,6 +241,9 @@ export interface AskmoreV2SessionState {
     last_help_obstacle_layer?: AskmoreV2HelpObstacleLayer;
     last_help_resolution_goal?: AskmoreV2HelpResolutionGoal;
     last_help_reconnect_target?: string;
+    last_clarify_subtype?: AskmoreV2ClarifySubtype;
+    last_resolved_referent?: string;
+    last_referent_source?: AskmoreV2ReferentSource;
   };
 }
 
@@ -296,6 +314,86 @@ export interface AskmoreV2SummaryOutput {
     open_points: string[];
     next_steps: string[];
   };
+}
+
+export interface AskmoreV2InsightPackTrace {
+  core_pack: string;
+  domain_pack: string;
+  subdomain_packs: string[];
+  style_pack: string;
+  safety_pack: string;
+}
+
+export interface AskmoreV2InsightQualityFlags {
+  has_professional_read: boolean;
+  has_attention_points: boolean;
+  has_practical_guidance: boolean;
+  prompt_configured: boolean;
+  too_generic: boolean;
+  is_conclusion_first?: boolean;
+  has_observation_anchor?: boolean;
+  has_open_question_or_hypothesis?: boolean;
+  too_template_like?: boolean;
+}
+
+export interface AskmoreV2AiThinkingResult {
+  version: "ai_thinking.v2";
+  domain: AskmoreV2InsightDomain;
+  professional_read: string;
+  what_i_would_pay_attention_to: string;
+  practical_guidance: string;
+  additional_sections?: Record<string, unknown>;
+  stage_a_read: {
+    provider_intent_read: string;
+    respondent_state_read: string;
+    expert_impression: string;
+  };
+  underlying_drivers_evidence: Array<{
+    hypothesis: string;
+    support: string[];
+    confidence: AskmoreV2InsightConfidence;
+  }>;
+  internal_reasoning_map: {
+    observed_facts: string[];
+    signals: string[];
+    claims: string[];
+    unsupported_speculations: string[];
+  };
+  boundary_notes: string[];
+  prompt_composition?: string[];
+  pack_trace: AskmoreV2InsightPackTrace;
+  quality_flags: AskmoreV2InsightQualityFlags;
+}
+
+export interface AskmoreV2InsightMeta {
+  latest_run_id?: string;
+  latest_trigger?: AskmoreV2InsightTrigger;
+  latest_generated_at?: string;
+  latest_quality_flags?: AskmoreV2InsightQualityFlags;
+  latest_error?: string | null;
+}
+
+export interface AskmoreV2InsightPackConfig {
+  corePack?: string;
+  domainPack?: string;
+  subdomainPacks?: string[];
+  stylePack?: string;
+  safetyPack?: string;
+}
+
+export interface AskmoreV2InsightRunRecord {
+  id: string;
+  session_id: string;
+  trigger_source: AskmoreV2InsightTrigger;
+  domain: AskmoreV2InsightDomain;
+  subdomain: string | null;
+  language: AskmoreV2Language;
+  pack_trace_jsonb: AskmoreV2InsightPackTrace;
+  input_snapshot_jsonb: Record<string, unknown>;
+  result_jsonb: AskmoreV2AiThinkingResult | null;
+  quality_flags_jsonb: AskmoreV2InsightQualityFlags | null;
+  error_text: string | null;
+  created_at: string;
 }
 
 export interface AskmoreV2TurnExtractorFact {

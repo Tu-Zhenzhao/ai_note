@@ -1,6 +1,7 @@
 import {
   AskmoreV2EventChannel,
   AskmoreV2FlowVersion,
+  AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
   AskmoreV2TurnCommitRecord,
@@ -14,6 +15,7 @@ interface AskmoreV2Store {
   messages: Map<string, AskmoreV2Message[]>;
   events: Map<string, Array<{ turn_id: string; channel: AskmoreV2EventChannel; event: AskmoreV2TurnEvent }>>;
   commits: Map<string, AskmoreV2TurnCommitRecord>;
+  insightRuns: Map<string, AskmoreV2InsightRunRecord[]>;
 }
 
 const globalStore = globalThis as unknown as { __askmoreV2Store?: AskmoreV2Store };
@@ -26,7 +28,11 @@ function getStore(): AskmoreV2Store {
       messages: new Map(),
       events: new Map(),
       commits: new Map(),
+      insightRuns: new Map(),
     };
+  }
+  if (!globalStore.__askmoreV2Store.insightRuns) {
+    globalStore.__askmoreV2Store.insightRuns = new Map();
   }
   return globalStore.__askmoreV2Store;
 }
@@ -38,6 +44,7 @@ export function resetAskmoreV2MemoryStore(): void {
     messages: new Map(),
     events: new Map(),
     commits: new Map(),
+    insightRuns: new Map(),
   };
 }
 
@@ -97,6 +104,7 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
     const existed = this.store.sessions.delete(sessionId);
     this.store.messages.delete(sessionId);
     this.store.events.delete(sessionId);
+    this.store.insightRuns.delete(sessionId);
     for (const key of this.store.commits.keys()) {
       if (key.startsWith(`${sessionId}::`)) this.store.commits.delete(key);
     }
@@ -172,5 +180,23 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
       throw new Error("ASKMORE_V2_TURN_COMMIT_CONFLICT");
     }
     this.store.commits.set(key, record);
+  }
+
+  async createInsightRun(record: AskmoreV2InsightRunRecord): Promise<void> {
+    const list = this.store.insightRuns.get(record.session_id) ?? [];
+    list.push(record);
+    this.store.insightRuns.set(record.session_id, list);
+  }
+
+  async listInsightRuns(sessionId: string, limit = 20): Promise<AskmoreV2InsightRunRecord[]> {
+    const list = this.store.insightRuns.get(sessionId) ?? [];
+    return [...list]
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
+  }
+
+  async getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null> {
+    const list = await this.listInsightRuns(sessionId, 1);
+    return list[0] ?? null;
   }
 }

@@ -1,6 +1,7 @@
 import {
   AskmoreV2FlowVersion,
   AskmoreV2EventChannel,
+  AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
   AskmoreV2TurnCommitRecord,
@@ -42,4 +43,8 @@ export interface AskmoreV2Repository {
 
   getTurnCommit(sessionId: string, clientTurnId: string): Promise<AskmoreV2TurnCommitRecord | null>;
   createTurnCommit(record: AskmoreV2TurnCommitRecord): Promise<void>;
+
+  createInsightRun(record: AskmoreV2InsightRunRecord): Promise<void>;
+  listInsightRuns(sessionId: string, limit?: number): Promise<AskmoreV2InsightRunRecord[]>;
+  getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null>;
 }

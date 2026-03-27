@@ -54,6 +54,11 @@ type ReviewGenerationMeta = {
   fallback_count: number;
 };
 
+type BuilderSelectOption = {
+  value: string;
+  label: string;
+};
+
 type ActiveFlowPayload = {
   flow: {
     id: string;
@@ -169,6 +174,27 @@ const SELECTION_MODE_META: Record<
   },
 };
 
+const SCENARIO_OPTIONS: BuilderSelectOption[] = [
+  { value: "咨询 intake", label: "咨询 Intake（初始信息采集）" },
+  { value: "心理咨询 intake", label: "心理咨询 Intake" },
+  { value: "医疗问诊 intake", label: "医疗问诊 Intake" },
+  { value: "客服问题排查", label: "客服问题排查" },
+  { value: "售前需求访谈", label: "售前需求访谈" },
+];
+
+const TARGET_OUTPUT_OPTIONS: BuilderSelectOption[] = [
+  { value: "结构化总结报告", label: "结构化总结报告" },
+  { value: "风险分层结论", label: "风险分层结论" },
+  { value: "行动建议清单", label: "行动建议清单" },
+  { value: "阶段性回访要点", label: "阶段性回访要点" },
+];
+
+function withCompatibilityOption(options: BuilderSelectOption[], currentValue: string): BuilderSelectOption[] {
+  if (!currentValue.trim()) return options;
+  if (options.some((item) => item.value === currentValue)) return options;
+  return [{ value: currentValue, label: `历史值：${currentValue}` }, ...options];
+}
+
 export function AskmoreV2BuilderApp() {
   const [rawQuestions, setRawQuestions] = useState<string[]>([
     "乱尿 / 标记：一周几次？只尿猫砂盆外、还是也尿床 / 衣物？应激后才发生还是常年？",
@@ -192,6 +218,14 @@ export function AskmoreV2BuilderApp() {
   const cleanedQuestions = useMemo(
     () => rawQuestions.map((q) => q.trim()).filter(Boolean),
     [rawQuestions],
+  );
+  const scenarioOptions = useMemo(
+    () => withCompatibilityOption(SCENARIO_OPTIONS, scenario),
+    [scenario],
+  );
+  const targetOutputOptions = useMemo(
+    () => withCompatibilityOption(TARGET_OUTPUT_OPTIONS, targetOutputType),
+    [targetOutputType],
   );
 
   async function loadActiveFlow() {
@@ -322,7 +356,7 @@ export function AskmoreV2BuilderApp() {
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(payload.error ?? "AI review failed");
+        throw new Error(`[${response.status}] ${payload.error ?? "AI review failed"}`);
       }
       setCards(payload.cards ?? []);
       setReviewMeta(payload.review_generation_meta ?? null);
@@ -409,6 +443,22 @@ export function AskmoreV2BuilderApp() {
           </a>
         </div>
 
+        {error && (
+          <div
+            style={{
+              marginBottom: 12,
+              borderRadius: 12,
+              padding: "10px 12px",
+              background: "#FEF2F2",
+              border: "1px solid #FCA5A5",
+              color: "#991B1B",
+              fontSize: 12,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         <div
           style={{
             background: "var(--color-elev)",
@@ -472,9 +522,75 @@ export function AskmoreV2BuilderApp() {
             }}
           >
             <div style={{ fontWeight: 700, fontSize: 14, color: "var(--color-text)" }}>原始问题表</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <input value={scenario} onChange={(e) => setScenario(e.target.value)} placeholder="场景描述" />
-              <input value={targetOutputType} onChange={(e) => setTargetOutputType(e.target.value)} placeholder="目标输出类型" />
+            <div
+              style={{
+                border: "1px dashed var(--color-line)",
+                borderRadius: 10,
+                background: "#fff",
+                padding: 10,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text)" }}>场景描述</span>
+                  <span className="v2-help-tooltip-wrap">
+                    <span className="v2-help-icon" aria-hidden="true">?</span>
+                    <span className="v2-help-tooltip">告诉 AI 这套问题用于什么场景，能让追问更贴合实际使用语境。</span>
+                  </span>
+                </div>
+                <select
+                  value={scenario}
+                  onChange={(e) => setScenario(e.target.value)}
+                  style={{
+                    border: "1px solid var(--color-line)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "#fff",
+                    fontSize: 12,
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {scenarioOptions.map((option) => (
+                    <option key={`scenario-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text)" }}>目标输出类型</span>
+                  <span className="v2-help-tooltip-wrap">
+                    <span className="v2-help-icon" aria-hidden="true">?</span>
+                    <span className="v2-help-tooltip">告诉 AI 最终要产出什么形式，能让提问与总结结构更一致。</span>
+                  </span>
+                </div>
+                <select
+                  value={targetOutputType}
+                  onChange={(e) => setTargetOutputType(e.target.value)}
+                  style={{
+                    border: "1px solid var(--color-line)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "#fff",
+                    fontSize: 12,
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {targetOutputOptions.map((option) => (
+                    <option key={`target-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-muted)" }}>
+              先选清楚“场景”和“输出”，AI review 会更稳定，生成的子问题会更贴近你要的最终结果。
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <label style={{ fontSize: 12, color: "var(--color-muted)" }}>语言</label>
@@ -898,23 +1014,72 @@ export function AskmoreV2BuilderApp() {
           </section>
         </div>
 
-        {(error || notice) && (
+        {notice && (
           <div
             style={{
               marginTop: 10,
               borderRadius: 12,
               padding: "10px 12px",
-              background: error ? "#FEF2F2" : "#ECFDF5",
-              border: `1px solid ${error ? "#FCA5A5" : "#86EFAC"}`,
-              color: error ? "#991B1B" : "#065F46",
+              background: "#ECFDF5",
+              border: "1px solid #86EFAC",
+              color: "#065F46",
               fontSize: 12,
             }}
           >
-            {error ?? notice}
+            {notice}
           </div>
         )}
       </div>
       <style jsx>{`
+        .v2-help-tooltip-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+        }
+        .v2-help-icon {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #dbeafe;
+          color: #1d4ed8;
+          font-size: 11px;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: help;
+          line-height: 1;
+        }
+        .v2-help-tooltip {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          min-width: 220px;
+          max-width: 320px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          border: 1px solid #bfdbfe;
+          background: #eff6ff;
+          color: #1e3a8a;
+          font-size: 11px;
+          line-height: 1.4;
+          box-shadow: 0 8px 18px rgba(30, 64, 175, 0.14);
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-2px);
+          transition: opacity 0.15s ease, transform 0.15s ease;
+          z-index: 8;
+        }
+        .v2-help-tooltip-wrap:hover .v2-help-tooltip {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        @media (max-width: 860px) {
+          .v2-help-tooltip {
+            left: auto;
+            right: 0;
+          }
+        }
         @keyframes v2PreviewPulse {
           0% {
             box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.16), 0 8px 18px rgba(245, 158, 11, 0.18);

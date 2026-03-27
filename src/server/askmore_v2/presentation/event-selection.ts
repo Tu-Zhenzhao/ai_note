@@ -155,8 +155,9 @@ export function selectPresentationDraftEvents(params: {
     transitionContent ?? "",
   );
   const turnFinalized = Boolean(params.state.session.finalized) || transitionImpliesCompletion;
+  const hasHelpExplanation = Boolean(firstContent(debugEvents, "help_explanation"));
 
-  if (params.routedIntent.intent === "ask_for_help") {
+  if (params.routedIntent.intent === "ask_for_help" || hasHelpExplanation) {
     drafts.push({
       event_type: "help_explanation",
       created_at: debugEvents[0]?.created_at ?? now,
@@ -178,6 +179,7 @@ export function selectPresentationDraftEvents(params: {
     }
   } else {
     const micro = firstMicroConfirm(debugEvents);
+    const gapNotice = firstContent(debugEvents, "gap_notice");
     if (micro && !turnFinalized) {
       drafts.push({
         event_type: "micro_confirm",
@@ -189,11 +191,11 @@ export function selectPresentationDraftEvents(params: {
         mode: micro.payload.mode ?? "micro_confirm",
         badge_label: micro.payload.badge_label ?? (params.language === "zh" ? "快速确认" : "Quick confirm"),
       });
-    } else if (!turnFinalized) {
+    } else if (!turnFinalized && gapNotice) {
       drafts.push({
         event_type: "gentle_gap_prompt",
         created_at: debugEvents[0]?.created_at ?? now,
-        content_hint: firstContent(debugEvents, "gap_notice") ?? fallbackGap(params.language),
+        content_hint: gapNotice ?? fallbackGap(params.language),
       });
     }
   }

@@ -29,55 +29,26 @@ const schema = z.object({
 });
 
 type ReviewItemShape = z.infer<typeof schema>["review_items"][number];
+const REVIEW_TIMEOUT_MS = Number(process.env.ASKMORE_V2_REVIEW_TIMEOUT_MS ?? 45_000);
 
-function buildFallbackReviewItem(params: {
-  question: string;
-  index: number;
-  language: AskmoreV2Language;
-}): ReviewItemShape {
-  const trimmed = params.question.trim();
-  const lower = trimmed.toLowerCase();
-  const broadTokens = ["愿景", "strategy", "vision", "future", "长期", "overall", "全面"];
-  const abstractTokens = ["价值", "意义", "理念", "belief", "philosophy", "culture"];
-  const isTooBroad = trimmed.length > 28 || broadTokens.some((token) => lower.includes(token));
-  const isTooAbstract = abstractTokens.some((token) => lower.includes(token));
-  const difficulty = isTooBroad || isTooAbstract ? "high" : trimmed.length > 16 ? "medium" : "low";
-  const isZh = params.language === "zh";
+function normalizeQuestionKey(value: string): string {
+  return value
+    .trim()
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/[?.!。？！]+$/g, "")
+    .replace(/\s+/g, " ");
+}
 
-  return {
-    question_id: `q${params.index + 1}`,
-    original_question: trimmed,
-    evaluation: {
-      is_too_broad: isTooBroad,
-      is_too_abstract: isTooAbstract,
-      difficulty,
-    },
-    reason: isZh
-      ? isTooBroad || isTooAbstract
-        ? "问题偏宽或偏抽象，直接回答成本较高。"
-        : "问题清晰，可直接进入。"
-      : isTooBroad || isTooAbstract
-        ? "Question is broad/abstract and hard to answer directly."
-        : "Question is clear and answerable directly.",
-    recommended_strategy: isTooBroad || isTooAbstract ? "progressive_expand" : "direct_then_clarify",
-    entry_question: isZh
-      ? `先从最具体的说：关于「${trimmed}」，你现在最确定的一点是什么？`
-      : `Let's start concrete: for "${trimmed}", what is one thing you're most sure about right now?`,
-    sub_questions: isZh
-      ? [
-          `你能先用一句话回答「${trimmed}」吗？`,
-          "能给一个真实例子吗？",
-          "如果只保留一个重点，你会保留什么？",
-        ]
-      : [
-          `Could you answer "${trimmed}" in one sentence first?`,
-          "Can you share one concrete example?",
-          "If you keep only one key point, what is it?",
-        ],
-    example_answer_styles: isZh
-      ? ["一句话版", "举例版", "业务描述版"]
-      : ["one-liner", "example-based", "business-context"],
-  };
+function pickUnusedIndex(indices: number[] | undefined, used: Set<number>): number | null {
+  if (!indices || indices.length === 0) return null;
+  for (const index of indices) {
+    if (used.has(index)) continue;
+    used.add(index);
+    return index;
+  }
+  return null;
 }
 
 function toCandidate(item: ReviewItemShape): AskmoreV2QuestionCandidate {
@@ -92,7 +63,6 @@ function toCandidate(item: ReviewItemShape): AskmoreV2QuestionCandidate {
 function buildCard(params: {
   item: ReviewItemShape;
   index: number;
-  usedFallback: boolean;
 }): AskmoreV2QuestionCard {
   const originalQuestion = params.item.original_question.trim();
   const aiCandidate = toCandidate(params.item);
@@ -114,7 +84,7 @@ function buildCard(params: {
       selection: { mode: "use_ai_refined" },
       final_payload: finalPayload,
       review_generation_meta: {
-        used_fallback: params.usedFallback,
+        used_fallback: false,
       },
     },
     params.index,
@@ -158,36 +128,63 @@ export async function refineQuestionList(params: {
         `Target output type: ${params.targetOutputType || "summary report"}`,
         `Raw questions JSON: ${JSON.stringify(cleaned)}`,
       ].join("\n"),
+      primaryModel: process.env.ASKMORE_V2_REVIEW_PRIMARY_MODEL ?? "gpt-5",
+      fallbackModel: process.env.ASKMORE_V2_REVIEW_FALLBACK_MODEL ?? "deepseek-chat",
+      timeoutMs: REVIEW_TIMEOUT_MS,
       schema,
     });
 
-    const byOriginal = new Map(
-      result.review_items.map((item, idx) => [
-        item.original_question.trim(),
-        {
-          ...item,
-          question_id: item.question_id || `q${idx + 1}`,
-        },
-      ]),
-    );
+    const reviewItems = result.review_items.map((item, idx) => ({
+      ...item,
+      question_id: item.question_id || `q${idx + 1}`,
+      original_question: item.original_question.trim(),
+    }));
+    if (reviewItems.length < cleaned.length) {
+      throw new Error(`AI review returned ${reviewItems.length} items for ${cleaned.length} questions.`);
+    }
 
+    const byExact = new Map<string, number[]>();
+    const byNormalized = new Map<string, number[]>();
+    for (let i = 0; i < reviewItems.length; i += 1) {
+      const original = reviewItems[i].original_question;
+      const exactBucket = byExact.get(original) ?? [];
+      exactBucket.push(i);
+      byExact.set(original, exactBucket);
+
+      const normalized = normalizeQuestionKey(original);
+      const normalizedBucket = byNormalized.get(normalized) ?? [];
+      normalizedBucket.push(i);
+      byNormalized.set(normalized, normalizedBucket);
+    }
+
+    const usedIndices = new Set<number>();
     const cards = cleaned.map((question, idx) => {
-      const hit = byOriginal.get(question);
-      if (hit) {
-        return buildCard({
-          item: hit,
-          index: idx,
-          usedFallback: false,
-        });
+      let chosen = pickUnusedIndex(byExact.get(question), usedIndices);
+      if (chosen === null) {
+        const normalized = normalizeQuestionKey(question);
+        chosen = pickUnusedIndex(byNormalized.get(normalized), usedIndices);
       }
+      if (chosen === null && idx < reviewItems.length && !usedIndices.has(idx)) {
+        usedIndices.add(idx);
+        chosen = idx;
+      }
+      if (chosen === null) {
+        chosen = pickUnusedIndex(reviewItems.map((_, index) => index), usedIndices);
+      }
+      if (chosen === null) {
+        throw new Error("AI review output could not be aligned to input questions.");
+      }
+
+      const aligned: ReviewItemShape = {
+        ...reviewItems[chosen],
+        // Preserve Builder input as source of truth to avoid downstream mismatch.
+        original_question: question,
+        question_id: `q${idx + 1}`,
+      };
+
       return buildCard({
-        item: buildFallbackReviewItem({
-          question,
-          index: idx,
-          language: params.language,
-        }),
+        item: aligned,
         index: idx,
-        usedFallback: true,
       });
     });
 
@@ -195,21 +192,8 @@ export async function refineQuestionList(params: {
       cards,
       review_generation_meta: buildMeta(cards),
     };
-  } catch {
-    const cards = cleaned.map((question, idx) =>
-      buildCard({
-        item: buildFallbackReviewItem({
-          question,
-          index: idx,
-          language: params.language,
-        }),
-        index: idx,
-        usedFallback: true,
-      }),
-    );
-    return {
-      cards,
-      review_generation_meta: buildMeta(cards),
-    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown";
+    throw new Error(`AI review failed without fallback. ${message}`);
   }
 }

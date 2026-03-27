@@ -11,12 +11,12 @@ export function getAskmoreV2Repository(): AskmoreV2Repository {
       if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") {
         repo = new MemoryAskmoreV2Repository();
       } else {
-        throw new Error("Askmore v2 requires DATABASE_URL. Run migrations including 006_askmore_v2_schema.sql through 008_askmore_v2_presentation_layer.sql.");
+        throw new Error("Askmore v2 requires DATABASE_URL. Run migrations including 006_askmore_v2_schema.sql through 010_askmore_v2_ai_thinking_v2_cutover.sql.");
       }
     } else {
       const pool = getPool();
       if (!pool) {
-        throw new Error("Askmore v2 requires DATABASE_URL. Run migrations including 006_askmore_v2_schema.sql through 008_askmore_v2_presentation_layer.sql.");
+        throw new Error("Askmore v2 requires DATABASE_URL. Run migrations including 006_askmore_v2_schema.sql through 010_askmore_v2_ai_thinking_v2_cutover.sql.");
       }
       repo = new PostgresAskmoreV2Repository();
     }

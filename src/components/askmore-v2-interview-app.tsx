@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   AgentRuntimeProgress,
   RuntimeProgressItem,
@@ -56,6 +57,49 @@ type SessionMessage = {
   created_at: string;
 };
 
+type InsightConfidence = "low" | "medium" | "high";
+
+type AiThinkingResult = {
+  version: "ai_thinking.v2";
+  domain: "business" | "mental_health" | "pet_clinic";
+  professional_read: string;
+  what_i_would_pay_attention_to: string;
+  practical_guidance: string;
+  additional_sections?: Record<string, unknown>;
+  stage_a_read: {
+    provider_intent_read: string;
+    respondent_state_read: string;
+    expert_impression: string;
+  };
+  underlying_drivers_evidence: Array<{ hypothesis: string; support: string[]; confidence: InsightConfidence }>;
+  boundary_notes: string[];
+  internal_reasoning_map: {
+    observed_facts: string[];
+    signals: string[];
+    claims: string[];
+    unsupported_speculations: string[];
+  };
+  prompt_composition?: string[];
+  pack_trace: {
+    core_pack: string;
+    domain_pack: string;
+    subdomain_packs: string[];
+    style_pack: string;
+    safety_pack: string;
+  };
+  quality_flags: {
+    has_professional_read: boolean;
+    has_attention_points: boolean;
+    has_practical_guidance: boolean;
+    prompt_configured: boolean;
+    too_generic: boolean;
+    is_conclusion_first?: boolean;
+    has_observation_anchor?: boolean;
+    has_open_question_or_hypothesis?: boolean;
+    too_template_like?: boolean;
+  };
+};
+
 type SessionState = {
   session: {
     current_question_id: string | null;
@@ -104,6 +148,13 @@ type SessionState = {
     open_points?: string[];
     next_steps?: string[];
   } | null;
+  latest_ai_thinking?: AiThinkingResult | null;
+  ai_thinking_meta?: {
+    latest_run_id?: string;
+    latest_trigger?: "manual" | "auto_on_completed";
+    latest_generated_at?: string;
+    latest_error?: string | null;
+  } | null;
   runtime_meta?: {
     last_task_module?: string;
     last_transition_reason?: string;
@@ -111,6 +162,9 @@ type SessionState = {
     last_help_obstacle_layer?: "concept" | "observation" | "judgement" | "expression" | "scope";
     last_help_resolution_goal?: "identify_behavior_signal" | "estimate_frequency" | "describe_duration" | "describe_timeline";
     last_help_reconnect_target?: string;
+    last_clarify_subtype?: "referent_clarify" | "concept_clarify" | "value_clarify";
+    last_resolved_referent?: string;
+    last_referent_source?: "active_question" | "previous_question" | "structured_knowledge";
   };
   nodes?: Record<
     string,
@@ -209,6 +263,9 @@ type AgentTraceView = {
   help_obstacle_layer?: "concept" | "observation" | "judgement" | "expression" | "scope";
   help_resolution_goal?: "identify_behavior_signal" | "estimate_frequency" | "describe_duration" | "describe_timeline";
   help_reconnect_target?: string;
+  clarify_subtype?: "referent_clarify" | "concept_clarify" | "value_clarify";
+  resolved_referent?: string;
+  referent_source?: "active_question" | "previous_question" | "structured_knowledge";
   interaction_mode?: "micro_confirm" | "follow_up_select";
   interaction_badge?: string;
   pending_commitments: Array<{
@@ -299,6 +356,83 @@ type SummaryResponse = {
   error?: string;
 };
 
+type InsightRunRecord = {
+  id: string;
+  session_id: string;
+  trigger_source: "manual" | "auto_on_completed";
+  domain: "business" | "mental_health" | "pet_clinic";
+  subdomain: string | null;
+  language: AskmoreV2Language;
+  pack_trace_jsonb: AiThinkingResult["pack_trace"];
+  input_snapshot_jsonb: Record<string, unknown>;
+  result_jsonb: AiThinkingResult | null;
+  quality_flags_jsonb: AiThinkingResult["quality_flags"] | null;
+  error_text: string | null;
+  created_at: string;
+};
+
+type AiThinkingStageBDraft1Debug = {
+  draft1_professional_read: string;
+  draft1_attention_points: string;
+  draft1_practical_guidance: string;
+  observation_anchors: string[];
+  open_questions_or_hypotheses: string[];
+  tone_risks_to_avoid_in_draft2: string[];
+};
+
+type AiThinkingJobProgress = {
+  stage: "queued" | "stage_a" | "stage_b_draft1" | "stage_b_draft2" | "stage_b_draft2_retry" | "finalizing" | "done" | "failed";
+  percent: number;
+  stages_total: number;
+  stages_completed: number;
+  updated_at: string;
+};
+
+type InsightPostResponse = {
+  ai_thinking_result?: AiThinkingResult;
+  run_meta?: {
+    run_id: string;
+    trigger: "manual" | "auto_on_completed";
+    pack_trace: AiThinkingResult["pack_trace"];
+    created_at: string;
+  };
+  accepted?: boolean;
+  job_meta?: {
+    job_id: string;
+    session_id: string;
+    trigger: "manual" | "auto_on_completed";
+    status: "running" | "succeeded" | "failed";
+    created_at: string;
+    started_at: string;
+    finished_at?: string;
+    error?: string;
+    progress?: AiThinkingJobProgress;
+  };
+  error?: string;
+};
+
+type InsightJobStatusResponse = {
+  job_meta: {
+    job_id: string;
+    session_id: string;
+    trigger: "manual" | "auto_on_completed";
+    status: "running" | "succeeded" | "failed";
+    created_at: string;
+    started_at: string;
+    finished_at?: string;
+    run_meta?: {
+      run_id: string;
+      trigger: "manual" | "auto_on_completed";
+      pack_trace: AiThinkingResult["pack_trace"];
+      created_at: string;
+    };
+    error?: string;
+    progress?: AiThinkingJobProgress;
+  };
+  error?: string;
+  error_code?: string;
+};
+
 type ChatRow = {
   id: string;
   role: "assistant" | "user";
@@ -313,6 +447,11 @@ type SummaryDialogState = {
   mode: "progressive" | "final";
   summaryText: string;
   report: SummaryResponse["structured_report_json"] | Record<string, unknown> | null;
+} | null;
+
+type InsightDialogState = {
+  insight: AiThinkingResult;
+  history: InsightRunRecord[];
 } | null;
 
 type SessionNodeRuntimeView = {
@@ -381,6 +520,94 @@ function subQuestionPriorityInfo(params: {
     tone: priority === "must" ? "must" as const : "optional" as const,
     downgradedByLimit: Boolean(params.nodeRuntime?.dimension_priority_downgraded_by_limit?.[params.dimensionId]),
   };
+}
+
+function toDisplaySectionTitle(key: string): string {
+  const normalized = key.replace(/[_-]+/g, " ").trim();
+  if (!normalized) return key;
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function normalizeMarkdownText(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  let output = trimmed;
+  const fenced = output.match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) {
+    output = fenced[1].trim();
+  }
+
+  // Some model outputs keep escaped newlines in JSON text payload.
+  if (!output.includes("\n") && output.includes("\\n")) {
+    output = output.replace(/\\n/g, "\n");
+  }
+
+  return output;
+}
+
+function renderAdditionalSectionValue(value: unknown) {
+  if (typeof value === "string") {
+    return (
+      <div className="v2-summary-text v2-markdown">
+        <ReactMarkdown>{normalizeMarkdownText(value)}</ReactMarkdown>
+      </div>
+    );
+  }
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return (
+      <ul className="v2-inline-list">
+        {value.map((item, idx) => (
+          <li key={`section-str-${idx}`}>
+            <div className="v2-summary-text v2-markdown">
+              <ReactMarkdown>{normalizeMarkdownText(item)}</ReactMarkdown>
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <details className="v2-insight-trace">
+      <summary>查看结构化内容</summary>
+      <pre className="v2-summary-json">{JSON.stringify(value, null, 2)}</pre>
+    </details>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractStageBDraft1Debug(run: InsightRunRecord | null | undefined): AiThinkingStageBDraft1Debug | null {
+  if (!run || !isRecord(run.input_snapshot_jsonb)) return null;
+  const debug = run.input_snapshot_jsonb.ai_thinking_debug;
+  if (!isRecord(debug)) return null;
+  const draft1 = debug.stage_b_draft1;
+  if (!isRecord(draft1)) return null;
+
+  const toStringArray = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+  };
+
+  return {
+    draft1_professional_read: String(draft1.draft1_professional_read ?? ""),
+    draft1_attention_points: String(draft1.draft1_attention_points ?? ""),
+    draft1_practical_guidance: String(draft1.draft1_practical_guidance ?? ""),
+    observation_anchors: toStringArray(draft1.observation_anchors),
+    open_questions_or_hypotheses: toStringArray(draft1.open_questions_or_hypotheses),
+    tone_risks_to_avoid_in_draft2: toStringArray(draft1.tone_risks_to_avoid_in_draft2),
+  };
+}
+
+function extractStageCallLogs(run: InsightRunRecord | null | undefined): Array<Record<string, unknown>> {
+  if (!run || !isRecord(run.input_snapshot_jsonb)) return [];
+  const debug = run.input_snapshot_jsonb.ai_thinking_debug;
+  if (!isRecord(debug)) return [];
+  const logs = debug.stage_call_logs;
+  if (!Array.isArray(logs)) return [];
+  return logs.filter((item) => isRecord(item)).map((item) => item as Record<string, unknown>);
 }
 
 function eventsToRenderBlocks(events: VisibleEvent[]): ResponseBlock[] {
@@ -497,6 +724,31 @@ function buildEventMetaText(event: DebugEvent): string {
   return parts.join(" · ");
 }
 
+function aiThinkingStageLabel(
+  stage: AiThinkingJobProgress["stage"] | undefined,
+  lang: AskmoreV2Language,
+): string {
+  if (stage === "queued") return lang === "zh" ? "等待排队" : "Queued";
+  if (stage === "stage_a") return lang === "zh" ? "阶段A：专业读案" : "Stage A: Case Read";
+  if (stage === "stage_b_draft1") return lang === "zh" ? "阶段B1：深入展开" : "Stage B1: Deep Draft";
+  if (stage === "stage_b_draft2") return lang === "zh" ? "阶段B2：成稿写作" : "Stage B2: Final Write";
+  if (stage === "stage_b_draft2_retry") return lang === "zh" ? "阶段B2：风格精修" : "Stage B2: Style Rewrite";
+  if (stage === "finalizing") return lang === "zh" ? "结果整理中" : "Finalizing";
+  if (stage === "done") return lang === "zh" ? "已完成" : "Completed";
+  if (stage === "failed") return lang === "zh" ? "执行失败" : "Failed";
+  return lang === "zh" ? "处理中" : "Running";
+}
+
+function aiThinkingDomainBadge(domain: AiThinkingResult["domain"], lang: AskmoreV2Language): { emoji: string; label: string } {
+  if (domain === "business") {
+    return { emoji: "💼", label: lang === "zh" ? "商业" : "Business" };
+  }
+  if (domain === "pet_clinic") {
+    return { emoji: "🐾", label: lang === "zh" ? "宠物" : "Pet Clinic" };
+  }
+  return { emoji: "🧠", label: lang === "zh" ? "心理" : "Mental Health" };
+}
+
 function compactTraceFromTurn(payload: TurnResponse): AgentTraceView {
   const interactionEvent = (payload.events ?? []).find((event) => (event.payload.options ?? []).length > 0);
   const pending = (payload.state.session.pending_commitments ?? []).map((item) => ({
@@ -515,6 +767,9 @@ function compactTraceFromTurn(payload: TurnResponse): AgentTraceView {
     help_obstacle_layer: payload.state.runtime_meta?.last_help_obstacle_layer,
     help_resolution_goal: payload.state.runtime_meta?.last_help_resolution_goal,
     help_reconnect_target: payload.state.runtime_meta?.last_help_reconnect_target,
+    clarify_subtype: payload.state.runtime_meta?.last_clarify_subtype,
+    resolved_referent: payload.state.runtime_meta?.last_resolved_referent,
+    referent_source: payload.state.runtime_meta?.last_referent_source,
     interaction_mode: interactionEvent?.payload.mode,
     interaction_badge: interactionEvent?.payload.badge_label,
     pending_commitments: pending,
@@ -570,6 +825,10 @@ export function AskmoreV2InterviewApp() {
   const [sending, setSending] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryDialog, setSummaryDialog] = useState<SummaryDialogState>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightDialog, setInsightDialog] = useState<InsightDialogState>(null);
+  const [insightHistory, setInsightHistory] = useState<InsightRunRecord[]>([]);
+  const [insightJobMeta, setInsightJobMeta] = useState<InsightJobStatusResponse["job_meta"] | null>(null);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [sessionList, setSessionList] = useState<SessionListItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
@@ -579,6 +838,7 @@ export function AskmoreV2InterviewApp() {
   const [progressPanelSize, setProgressPanelSize] = useState<"compact" | "standard" | "expanded">("standard");
   const [runtimeProgressItems, setRuntimeProgressItems] = useState<RuntimeProgressItem[]>([]);
   const [runtimeFallbackHint, setRuntimeFallbackHint] = useState<string | null>(null);
+  const [thinkingHintOpen, setThinkingHintOpen] = useState(false);
 
   const progressQueueRef = useRef<Array<{ phase: RuntimeProgressPhase; label: string }>>([]);
   const activePhaseRef = useRef<RuntimeProgressPhase | null>(null);
@@ -622,6 +882,25 @@ export function AskmoreV2InterviewApp() {
       .sort((a, b) => b[1].confidence - a[1].confidence);
   }, [sessionState]);
 
+  const latestInsightRunInDialog = useMemo(() => {
+    if (!insightDialog) return null;
+    const latestRunId = sessionState?.ai_thinking_meta?.latest_run_id;
+    if (latestRunId) {
+      const matched = insightDialog.history.find((item) => item.id === latestRunId);
+      if (matched) return matched;
+    }
+    return insightDialog.history[0] ?? null;
+  }, [insightDialog, sessionState?.ai_thinking_meta?.latest_run_id]);
+
+  const stageBDraft1Debug = useMemo(
+    () => extractStageBDraft1Debug(latestInsightRunInDialog),
+    [latestInsightRunInDialog],
+  );
+  const stageCallLogsInDialog = useMemo(
+    () => extractStageCallLogs(latestInsightRunInDialog),
+    [latestInsightRunInDialog],
+  );
+
   async function loadActiveFlow() {
     setActiveFlowLoading(true);
     setError(null);
@@ -645,6 +924,17 @@ export function AskmoreV2InterviewApp() {
 
   const debugEnabled = process.env.NEXT_PUBLIC_ASKMORE_V2_DEBUG === "1";
   const isSessionTransitioning = Boolean(switchingSessionId || deletingSessionId);
+  const isThinkingUnlocked = Boolean(sessionId) && interviewStatus === "completed";
+  const aiThinkingTitle = language === "zh" ? "AI思考" : "AI Thinking";
+  const thinkingUnlockHint = language === "zh"
+    ? "信息收集足够后会解锁 AI 思考。请先继续完成访谈。"
+    : "AI Thinking unlocks after enough information is collected. Please complete the interview first.";
+
+  useEffect(() => {
+    if (isThinkingUnlocked) {
+      setThinkingHintOpen(false);
+    }
+  }, [isThinkingUnlocked]);
 
   function isAbortError(error: unknown): boolean {
     if (!error) return false;
@@ -856,6 +1146,9 @@ export function AskmoreV2InterviewApp() {
     setInputText("");
     setSummaryDialog(null);
     setSummaryLoading(false);
+    setInsightDialog(null);
+    setInsightLoading(false);
+    setInsightHistory([]);
     setRuntimeFallbackHint(null);
     setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
     persistSessionId(null);
@@ -910,6 +1203,9 @@ export function AskmoreV2InterviewApp() {
     } else {
       setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
     }
+    await loadInsightHistory(payload.session.id).catch(() => {
+      setInsightHistory([]);
+    });
     persistSessionId(payload.session.id);
   }
 
@@ -968,6 +1264,8 @@ export function AskmoreV2InterviewApp() {
       setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
       setChatRows([{ id: `assistant-opening-${payload.session_id}`, role: "assistant", content: payload.opening_turn }]);
       setInputText("");
+      setInsightHistory([]);
+      setInsightDialog(null);
       persistSessionId(payload.session_id);
       if (showSessionPanel) {
         await loadSessionList();
@@ -1251,6 +1549,202 @@ export function AskmoreV2InterviewApp() {
     }
   }
 
+  async function loadInsightHistory(targetSessionId: string): Promise<{
+    latest: InsightRunRecord | null;
+    history: InsightRunRecord[];
+  }> {
+    const response = await fetch(`/api/askmore_v2/interview/insight?session_id=${targetSessionId}&limit=20`);
+    const payload = (await response.json()) as {
+      latest: InsightRunRecord | null;
+      history: InsightRunRecord[];
+      error?: string;
+    };
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to load insight history");
+    }
+    setInsightHistory(payload.history ?? []);
+    if (payload.latest?.result_jsonb) {
+      setSessionState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          latest_ai_thinking: payload.latest?.result_jsonb ?? prev.latest_ai_thinking ?? null,
+          ai_thinking_meta: {
+            ...(prev.ai_thinking_meta ?? {}),
+            latest_run_id: payload.latest?.id,
+            latest_trigger: payload.latest?.trigger_source,
+            latest_generated_at: payload.latest?.created_at,
+            latest_error: payload.latest?.error_text ?? null,
+          },
+        };
+      });
+    } else if (payload.latest?.error_text) {
+      setSessionState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ai_thinking_meta: {
+            ...(prev.ai_thinking_meta ?? {}),
+            latest_run_id: payload.latest?.id,
+            latest_trigger: payload.latest?.trigger_source,
+            latest_generated_at: payload.latest?.created_at,
+            latest_error: payload.latest?.error_text ?? null,
+          },
+        };
+      });
+    }
+    return {
+      latest: payload.latest ?? null,
+      history: payload.history ?? [],
+    };
+  }
+
+  async function waitForInsightJob(params: {
+    sessionId: string;
+    jobId: string;
+    timeoutMs?: number;
+    intervalMs?: number;
+  }): Promise<{ latest: InsightRunRecord | null; history: InsightRunRecord[] }> {
+    const timeoutMs = params.timeoutMs ?? 180000;
+    const intervalMs = params.intervalMs ?? 3200;
+    const startedAt = Date.now();
+    let notFoundCount = 0;
+    let dynamicIntervalMs = intervalMs;
+    let lastStage = "";
+    let sameStageCount = 0;
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      const statusResp = await fetch(`/api/askmore_v2/interview/insight/job?job_id=${params.jobId}`);
+      const statusPayload = (await statusResp.json()) as InsightJobStatusResponse;
+      if (statusResp.status === 404 || statusPayload.error_code === "job_not_found") {
+        notFoundCount += 1;
+        if (notFoundCount <= 6) {
+          await new Promise((resolve) => setTimeout(resolve, intervalMs));
+          continue;
+        }
+        return loadInsightHistory(params.sessionId);
+      }
+      if (!statusResp.ok) {
+        throw new Error(statusPayload.error ?? "Failed to query AI Thinking job");
+      }
+      setInsightJobMeta(statusPayload.job_meta);
+      const stage = statusPayload.job_meta.progress?.stage ?? "";
+      if (stage && stage === lastStage) {
+        sameStageCount += 1;
+        if (sameStageCount >= 2) {
+          dynamicIntervalMs = Math.min(7000, dynamicIntervalMs + 900);
+        }
+      } else {
+        lastStage = stage;
+        sameStageCount = 0;
+        dynamicIntervalMs = intervalMs;
+      }
+
+      if (statusPayload.job_meta.status === "succeeded") {
+        return loadInsightHistory(params.sessionId);
+      }
+      if (statusPayload.job_meta.status === "failed") {
+        throw new Error(statusPayload.job_meta.error ?? "AI Thinking generation failed");
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, dynamicIntervalMs));
+    }
+
+    throw new Error(language === "zh" ? "AI思考生成超时，请稍后重试。" : "AI Thinking timed out. Please retry.");
+  }
+
+  async function requestInsight(forceRegenerate = false) {
+    if (isSessionTransitioning) return;
+    if (!sessionId) {
+      setError(language === "zh" ? "请先开始访谈。" : "Please start interview first.");
+      return;
+    }
+
+    setInsightLoading(true);
+    setInsightJobMeta(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/askmore_v2/interview/insight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          language,
+          force_regenerate: forceRegenerate,
+          async_mode: true,
+        }),
+      });
+      const payload = (await response.json()) as InsightPostResponse;
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Insight request failed");
+      }
+
+      if (response.status === 202 && payload.job_meta?.job_id) {
+        setInsightJobMeta(payload.job_meta as InsightJobStatusResponse["job_meta"]);
+        const latestBundle = await waitForInsightJob({
+          sessionId,
+          jobId: payload.job_meta.job_id,
+        });
+        if (latestBundle.latest?.result_jsonb) {
+          setInsightDialog({
+            insight: latestBundle.latest.result_jsonb,
+            history: latestBundle.history,
+          });
+        }
+        return;
+      }
+
+      const latestBundle = await loadInsightHistory(sessionId);
+      if (payload.ai_thinking_result && payload.run_meta) {
+        setSessionState((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            latest_ai_thinking: payload.ai_thinking_result,
+            ai_thinking_meta: {
+              latest_run_id: payload.run_meta!.run_id,
+              latest_trigger: payload.run_meta!.trigger,
+              latest_generated_at: payload.run_meta!.created_at,
+              latest_error: null,
+            },
+          };
+        });
+      }
+      if (payload.ai_thinking_result) {
+        setInsightDialog({
+          insight: payload.ai_thinking_result,
+          history: latestBundle.history,
+        });
+      } else if (latestBundle.latest?.result_jsonb) {
+        setInsightDialog({
+          insight: latestBundle.latest.result_jsonb,
+          history: latestBundle.history,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Insight request failed";
+      setError(message);
+      setSessionState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ai_thinking_meta: {
+            ...(prev.ai_thinking_meta ?? {}),
+            latest_error: message,
+          },
+        };
+      });
+      if (sessionId) {
+        await loadInsightHistory(sessionId).catch(() => {
+          // keep original error
+        });
+      }
+    } finally {
+      setInsightLoading(false);
+      setInsightJobMeta(null);
+    }
+  }
+
   async function onOptionSelect(params: {
     dimensionId: string;
     option: MicroConfirmOption;
@@ -1404,7 +1898,7 @@ export function AskmoreV2InterviewApp() {
                   }}
                   disabled={isSessionTransitioning}
                 >
-                  Sessions
+                  {language === "zh" ? "会话" : "Sessions"}
                 </button>
                 <button
                   className="v2-btn ghost"
@@ -1412,7 +1906,7 @@ export function AskmoreV2InterviewApp() {
                   onClick={() => void handleNewSession()}
                   disabled={starting || !activeFlow || isSessionTransitioning}
                 >
-                  {starting ? "启动中..." : "New Session"}
+                  {starting ? (language === "zh" ? "启动中..." : "Starting...") : (language === "zh" ? "新会话" : "New Session")}
                 </button>
                 <button
                   className="v2-btn"
@@ -1420,16 +1914,38 @@ export function AskmoreV2InterviewApp() {
                   onClick={() => void startInterview()}
                   disabled={starting || interviewStatus === "in_progress" || !activeFlow || isSessionTransitioning}
                 >
-                  {starting ? "启动中..." : interviewStatus === "in_progress" ? "进行中" : "Start Interview"}
+                  {starting
+                    ? (language === "zh" ? "启动中..." : "Starting...")
+                    : interviewStatus === "in_progress"
+                      ? (language === "zh" ? "进行中" : "In Progress")
+                      : (language === "zh" ? "开始访谈" : "Start Interview")}
                 </button>
-                <button
-                  className="v2-btn ghost"
-                  type="button"
-                  onClick={() => void requestSummary("progressive")}
-                  disabled={summaryLoading || !sessionId || isSessionTransitioning}
+                <span
+                  className={`v2-lock-action ${thinkingHintOpen ? "open" : ""}`}
+                  onMouseLeave={() => setThinkingHintOpen(false)}
                 >
-                  {summaryLoading ? "处理中..." : "查看阶段总结"}
-                </button>
+                  <button
+                    className={`v2-btn v2-ai-thinking-btn ${isThinkingUnlocked ? "ready" : "locked"}`}
+                    type="button"
+                    onClick={() => {
+                      if (!isThinkingUnlocked) {
+                        setThinkingHintOpen(true);
+                        return;
+                      }
+                      void requestInsight(false);
+                    }}
+                    disabled={insightLoading || isSessionTransitioning}
+                  >
+                    {insightLoading
+                      ? (language === "zh" ? "AI思考处理中..." : "AI Thinking...")
+                      : aiThinkingTitle}
+                  </button>
+                  {!isThinkingUnlocked && (
+                    <>
+                      <span className="v2-lock-tooltip">{thinkingUnlockHint}</span>
+                    </>
+                  )}
+                </span>
                 <span className={`v2-session-badge ${sessionId ? "active" : ""}`}>
                   {sessionId ? `Session ${sessionId.slice(0, 8)}` : "Session -"}
                 </span>
@@ -1439,7 +1955,7 @@ export function AskmoreV2InterviewApp() {
             {showSessionPanel && (
               <div className="v2-session-panel">
                 <div className="v2-session-panel-head">
-                  <strong>All Sessions</strong>
+                  <strong>{language === "zh" ? "全部会话" : "All Sessions"}</strong>
                   <button
                     className="v2-panel-close"
                     type="button"
@@ -1450,9 +1966,9 @@ export function AskmoreV2InterviewApp() {
                   </button>
                 </div>
                 {sessionLoading ? (
-                  <div className="v2-session-empty">会话加载中...</div>
+                  <div className="v2-session-empty">{language === "zh" ? "会话加载中..." : "Loading sessions..."}</div>
                 ) : sessionList.length === 0 ? (
-                  <div className="v2-session-empty">还没有会话记录。</div>
+                  <div className="v2-session-empty">{language === "zh" ? "还没有会话记录。" : "No sessions yet."}</div>
                 ) : (
                   <div className="v2-session-list">
                     {sessionList.map((item) => {
@@ -1463,10 +1979,10 @@ export function AskmoreV2InterviewApp() {
                           <div className="v2-session-main">
                             <div className="v2-session-idline">
                               <span className="v2-session-id">{item.id.slice(0, 8)}...</span>
-                              {isCurrent && <span className="v2-active-tag">Active</span>}
+                              {isCurrent && <span className="v2-active-tag">{language === "zh" ? "当前" : "Active"}</span>}
                             </div>
                             <div className="v2-session-meta-line">
-                              {dateStr} · {item.status === "in_progress" ? "进行中" : "已完成"} · T{item.turn_count} · {item.current_question_id ?? "-"}
+                              {dateStr} · {item.status === "in_progress" ? (language === "zh" ? "进行中" : "In Progress") : (language === "zh" ? "已完成" : "Completed")} · T{item.turn_count} · {item.current_question_id ?? "-"}
                             </div>
                           </div>
                           {!isCurrent && (
@@ -1476,7 +1992,7 @@ export function AskmoreV2InterviewApp() {
                               onClick={() => void handleSwitchSession(item.id)}
                               disabled={isSessionTransitioning}
                             >
-                              {switchingSessionId === item.id ? "切换中..." : "Switch"}
+                              {switchingSessionId === item.id ? (language === "zh" ? "切换中..." : "Switching...") : (language === "zh" ? "切换" : "Switch")}
                             </button>
                           )}
                           <button
@@ -1485,7 +2001,7 @@ export function AskmoreV2InterviewApp() {
                             onClick={() => void handleDeleteSession(item.id)}
                             disabled={isSessionTransitioning}
                           >
-                            {deletingSessionId === item.id ? "删除中..." : "Delete"}
+                            {deletingSessionId === item.id ? (language === "zh" ? "删除中..." : "Deleting...") : (language === "zh" ? "删除" : "Delete")}
                           </button>
                         </div>
                       );
@@ -1499,8 +2015,8 @@ export function AskmoreV2InterviewApp() {
               {chatRows.length === 0 && (
                 <div className="v2-empty-tip">
                   {activeFlow
-                    ? "点击 Start Interview 开始。"
-                    : "还没有发布的 Flow，请先到 Builder 发布。"}
+                    ? (language === "zh" ? "点击“开始访谈”开始。" : "Click Start Interview to begin.")
+                    : (language === "zh" ? "还没有发布的 Flow，请先到 Builder 发布。" : "No published flow yet. Please publish one in Builder.")}
                 </div>
               )}
 
@@ -1588,6 +2104,15 @@ export function AskmoreV2InterviewApp() {
                             {row.trace.help_reconnect_target && (
                               <span className="v2-agent-chip">reconnect_gap: {row.trace.help_reconnect_target}</span>
                             )}
+                            {row.trace.clarify_subtype && (
+                              <span className="v2-agent-chip">clarify_subtype: {row.trace.clarify_subtype}</span>
+                            )}
+                            {row.trace.resolved_referent && (
+                              <span className="v2-agent-chip">resolved_referent: {row.trace.resolved_referent}</span>
+                            )}
+                            {row.trace.referent_source && (
+                              <span className="v2-agent-chip">referent_source: {row.trace.referent_source}</span>
+                            )}
                             {row.trace.interaction_mode && (
                               <span className="v2-agent-chip">interaction_mode: {row.trace.interaction_mode}</span>
                             )}
@@ -1663,7 +2188,9 @@ export function AskmoreV2InterviewApp() {
                   onClick={() => void requestSummary(interviewStatus === "completed" ? "final" : "progressive")}
                   disabled={summaryLoading || !sessionId || isSessionTransitioning}
                 >
-                  {summaryLoading ? "处理中..." : "Summary"}
+                  {summaryLoading
+                    ? (language === "zh" ? "处理中..." : "Loading...")
+                    : (language === "zh" ? "总结" : "Summary")}
                 </button>
                 <button
                   className="v2-btn"
@@ -1676,8 +2203,9 @@ export function AskmoreV2InterviewApp() {
             </form>
           </section>
 
-          <aside className="v2-side-panel">
-            <section className="v2-side-block">
+          <div className="v2-right-stack">
+            <aside className="v2-side-panel">
+              <section className="v2-side-block">
               <div className="v2-side-title-row">
                 <h3>问题进度</h3>
                 <div className="v2-size-switch" role="group" aria-label="问题进度显示大小">
@@ -1780,36 +2308,111 @@ export function AskmoreV2InterviewApp() {
                   );
                 })}
               </div>
-            </section>
+              </section>
 
-            <section className="v2-side-block">
-              <h3>当前理解</h3>
-              {structuredKnowledgeRows.length === 0 && (
-                <div className="v2-empty-inline">尚无结构化信息</div>
-              )}
-              <div className="v2-knowledge-list">
-                {structuredKnowledgeRows.map(([key, field]) => (
-                  <div key={key} className="v2-knowledge-item">
-                    <div className="v2-knowledge-key">{key}</div>
-                    <div className="v2-knowledge-val">{String(field.value)}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="v2-side-block">
-              <h3>还缺的关键点</h3>
-              {sessionState?.session.last_missing_points?.length ? (
-                <ul className="v2-missing-list">
-                  {sessionState.session.last_missing_points.map((point, idx) => (
-                    <li key={`${point}-${idx}`}>{point}</li>
+              <section className="v2-side-block">
+                <h3>当前理解</h3>
+                {structuredKnowledgeRows.length === 0 && (
+                  <div className="v2-empty-inline">尚无结构化信息</div>
+                )}
+                <div className="v2-knowledge-list">
+                  {structuredKnowledgeRows.map(([key, field]) => (
+                    <div key={key} className="v2-knowledge-item">
+                      <div className="v2-knowledge-key">{key}</div>
+                      <div className="v2-knowledge-val">{String(field.value)}</div>
+                    </div>
                   ))}
-                </ul>
+                </div>
+              </section>
+
+              <section className="v2-side-block">
+                <h3>还缺的关键点</h3>
+                {sessionState?.session.last_missing_points?.length ? (
+                  <ul className="v2-missing-list">
+                    {sessionState.session.last_missing_points.map((point, idx) => (
+                      <li key={`${point}-${idx}`}>{point}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="v2-empty-inline">当前没有明显缺口</div>
+                )}
+              </section>
+            </aside>
+
+            <section className="v2-thinking-panel-card">
+              <h3>{aiThinkingTitle}</h3>
+              {insightLoading && insightJobMeta?.progress && (
+                <div className="v2-ai-thinking-progress-wrap" aria-live="polite">
+                  <div className="v2-ai-thinking-progress-head">
+                    <span>
+                      {insightJobMeta.status === "succeeded"
+                        ? (language === "zh" ? "结果加载中" : "Loading result")
+                        : aiThinkingStageLabel(insightJobMeta.progress.stage, language)}
+                    </span>
+                    <span>{Math.round(insightJobMeta.progress.percent)}%</span>
+                  </div>
+                  <div className="v2-ai-thinking-progress-bar">
+                    <div style={{ width: `${Math.max(0, Math.min(100, Math.round(insightJobMeta.progress.percent)))}%` }} />
+                  </div>
+                  <div className="v2-ai-thinking-progress-meta">
+                    {language === "zh"
+                      ? `已完成 ${insightJobMeta.progress.stages_completed}/${insightJobMeta.progress.stages_total} 阶段`
+                      : `${insightJobMeta.progress.stages_completed}/${insightJobMeta.progress.stages_total} stages completed`}
+                  </div>
+                </div>
+              )}
+              {sessionState?.latest_ai_thinking ? (
+                <div className="v2-insight-preview">
+                  <div className="v2-insight-core v2-markdown">
+                    <ReactMarkdown>{normalizeMarkdownText(sessionState.latest_ai_thinking.professional_read)}</ReactMarkdown>
+                  </div>
+                  <div className="v2-insight-footer">
+                    <div className="v2-insight-meta">
+                      <span className="v2-domain-badge">
+                        <span aria-hidden>{aiThinkingDomainBadge(sessionState.latest_ai_thinking.domain, language).emoji}</span>
+                        <span>{aiThinkingDomainBadge(sessionState.latest_ai_thinking.domain, language).label}</span>
+                      </span>
+                      {sessionState.ai_thinking_meta?.latest_generated_at && (
+                        <span className="v2-insight-datetime">{new Date(sessionState.ai_thinking_meta.latest_generated_at).toLocaleString()}</span>
+                      )}
+                    </div>
+                    <div className="v2-insight-actions">
+                      <button
+                        className="v2-btn ghost"
+                        type="button"
+                        onClick={() => {
+                          setInsightDialog({
+                            insight: sessionState.latest_ai_thinking as AiThinkingResult,
+                            history: insightHistory,
+                          });
+                        }}
+                      >
+                        {language === "zh" ? "查看详情" : "View Details"}
+                      </button>
+                      <button
+                        className="v2-btn ghost"
+                        type="button"
+                        onClick={() => void requestInsight(true)}
+                        disabled={insightLoading || !isThinkingUnlocked || isSessionTransitioning}
+                      >
+                        {language === "zh" ? "重跑" : "Regenerate"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <div className="v2-empty-inline">当前没有明显缺口</div>
+                <div className="v2-empty-inline">
+                  {sessionState?.ai_thinking_meta?.latest_error
+                    ? (language === "zh"
+                      ? `AI思考生成失败：${sessionState.ai_thinking_meta.latest_error}`
+                      : `AI Thinking failed: ${sessionState.ai_thinking_meta.latest_error}`)
+                    : interviewStatus === "completed"
+                      ? (language === "zh" ? "访谈已完成，可生成 AI思考。" : "Interview completed. AI Thinking is available.")
+                      : (language === "zh" ? "信息足够后将自动解锁 AI思考。" : "AI Thinking unlocks after enough information is collected.")}
+                </div>
               )}
             </section>
-          </aside>
+          </div>
         </div>
 
         {error && <div className="v2-error">{error}</div>}
@@ -1826,13 +2429,144 @@ export function AskmoreV2InterviewApp() {
                 关闭
               </button>
             </div>
-            <div className="v2-summary-body">
-              <div className="v2-summary-text">{summaryDialog.summaryText}</div>
+              <div className="v2-summary-body">
+              <div className="v2-summary-text v2-markdown">
+                <ReactMarkdown>{normalizeMarkdownText(summaryDialog.summaryText)}</ReactMarkdown>
+              </div>
               {summaryDialog.report && (
                 <pre className="v2-summary-json">{JSON.stringify(summaryDialog.report, null, 2)}</pre>
               )}
             </div>
             <div className="v2-summary-foot">总结是独立视图，不占用对话轮次。</div>
+          </div>
+        </div>
+      )}
+
+      {insightDialog && (
+        <div className="v2-summary-overlay" role="dialog" aria-modal="true">
+          <div className="v2-summary-dialog">
+            <div className="v2-summary-head">
+              <div className="v2-summary-title">{aiThinkingTitle}</div>
+              <button className="v2-btn ghost" onClick={() => setInsightDialog(null)}>
+                关闭
+              </button>
+            </div>
+            <div className="v2-summary-body">
+              {insightDialog.insight.quality_flags.too_generic && (
+                <div className="v2-quality-warning">
+                  当前结果质量偏低（内容过于泛化），建议点击“重跑”重新生成。
+                </div>
+              )}
+              <div className="v2-insight-section">
+                <h4>我对你现在情况的判断</h4>
+                <div className="v2-summary-text v2-markdown">
+                  <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.professional_read)}</ReactMarkdown>
+                </div>
+              </div>
+              <div className="v2-insight-section">
+                <h4>我现在最想提醒和补看的地方</h4>
+                {insightDialog.insight.what_i_would_pay_attention_to.trim().length === 0 ? (
+                  <div className="v2-empty-inline">暂无</div>
+                ) : (
+                  <div className="v2-summary-text v2-markdown">
+                    <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.what_i_would_pay_attention_to)}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+              <div className="v2-insight-section">
+                <h4>我会给你的实际建议</h4>
+                {insightDialog.insight.practical_guidance.trim().length === 0 ? (
+                  <div className="v2-empty-inline">暂无</div>
+                ) : (
+                  <div className="v2-summary-text v2-markdown">
+                    <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.practical_guidance)}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+              {insightDialog.insight.additional_sections && Object.keys(insightDialog.insight.additional_sections).length > 0 && (
+                <div className="v2-insight-section">
+                  <h4>扩展结构字段</h4>
+                  {Object.entries(insightDialog.insight.additional_sections).map(([key, value]) => (
+                    <div key={`additional-${key}`} style={{ marginBottom: 10 }}>
+                      <div className="v2-block-title">{toDisplaySectionTitle(key)}</div>
+                      {renderAdditionalSectionValue(value)}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <details className="v2-insight-trace">
+                <summary>AI_AGENT 思考路径（工程调试）</summary>
+                <pre className="v2-summary-json">
+{JSON.stringify({
+  domain: insightDialog.insight.domain,
+  pack_trace: insightDialog.insight.pack_trace,
+  prompt_composition: insightDialog.insight.prompt_composition ?? [],
+  stage_a_read: insightDialog.insight.stage_a_read,
+  internal_reasoning_map: insightDialog.insight.internal_reasoning_map,
+  underlying_drivers_evidence: insightDialog.insight.underlying_drivers_evidence,
+  quality_flags: insightDialog.insight.quality_flags,
+  boundary_notes: insightDialog.insight.boundary_notes,
+  additional_sections: insightDialog.insight.additional_sections ?? {},
+  stage_call_logs: stageCallLogsInDialog,
+}, null, 2)}
+                </pre>
+              </details>
+              <details className="v2-insight-trace">
+                <summary>Stage B Draft1 原文（工程调试）</summary>
+                {stageBDraft1Debug ? (
+                  <div className="v2-draft1-debug">
+                    <div className="v2-insight-section">
+                      <h4>Draft1 · 我对你现在情况的判断（原稿）</h4>
+                      <div className="v2-summary-text v2-markdown">
+                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_professional_read)}</ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="v2-insight-section">
+                      <h4>Draft1 · 我现在最想提醒和补看的地方（原稿）</h4>
+                      <div className="v2-summary-text v2-markdown">
+                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_attention_points)}</ReactMarkdown>
+                      </div>
+                    </div>
+                    <div className="v2-insight-section">
+                      <h4>Draft1 · 我会给你的实际建议（原稿）</h4>
+                      <div className="v2-summary-text v2-markdown">
+                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_practical_guidance)}</ReactMarkdown>
+                      </div>
+                    </div>
+                    <pre className="v2-summary-json">
+{JSON.stringify({
+  observation_anchors: stageBDraft1Debug.observation_anchors,
+  open_questions_or_hypotheses: stageBDraft1Debug.open_questions_or_hypotheses,
+  tone_risks_to_avoid_in_draft2: stageBDraft1Debug.tone_risks_to_avoid_in_draft2,
+}, null, 2)}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="v2-empty-inline">当前 run 暂无 Draft1 调试快照。</div>
+                )}
+              </details>
+              <div className="v2-insight-section">
+                <h4>历史运行</h4>
+                {insightDialog.history.length === 0 ? (
+                  <div className="v2-empty-inline">暂无历史记录</div>
+                ) : (
+                  <ul className="v2-inline-list">
+                    {insightDialog.history.slice(0, 10).map((item) => (
+                      <li key={item.id}>
+                        {new Date(item.created_at).toLocaleString()} · {item.trigger_source} · {item.error_text
+                          ? `ERROR: ${item.error_text}`
+                          : item.quality_flags_jsonb?.too_generic
+                            ? "low_quality_generic"
+                            : "ok"}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            <div className="v2-summary-foot">
+              该路径展示结构化可审计依据，不展示模型原始推理文本。
+            </div>
           </div>
         </div>
       )}
@@ -1936,8 +2670,15 @@ export function AskmoreV2InterviewApp() {
           gap: 12px;
           align-items: start;
         }
+        .v2-right-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          align-self: start;
+        }
         .v2-chat-panel,
-        .v2-side-panel {
+        .v2-side-panel,
+        .v2-thinking-panel-card {
           background: var(--color-elev);
           border: 1px solid var(--color-line);
           border-radius: var(--radius-l);
@@ -1948,6 +2689,18 @@ export function AskmoreV2InterviewApp() {
           flex-direction: column;
           min-height: 720px;
           overflow: hidden;
+        }
+        .v2-thinking-panel-card {
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 320px;
+          background: linear-gradient(180deg, rgba(255, 252, 242, 1), rgba(255, 255, 255, 1));
+        }
+        .v2-thinking-panel-card h3 {
+          margin: 0;
+          font-size: 13px;
         }
         .v2-toolbar {
           border-bottom: 1px solid var(--color-line);
@@ -1979,6 +2732,37 @@ export function AskmoreV2InterviewApp() {
           flex-wrap: wrap;
           justify-content: flex-end;
         }
+        .v2-lock-action {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .v2-lock-tooltip {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 6px);
+          min-width: 230px;
+          max-width: 290px;
+          padding: 8px 10px;
+          border-radius: 10px;
+          border: 1px solid #fcd34d;
+          background: #fffbeb;
+          color: #92400e;
+          font-size: 11px;
+          line-height: 1.4;
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+          opacity: 0;
+          transform: translateY(-4px);
+          pointer-events: none;
+          transition: opacity 0.16s ease, transform 0.16s ease;
+          z-index: 20;
+        }
+        .v2-lock-action:hover .v2-lock-tooltip,
+        .v2-lock-action.open .v2-lock-tooltip {
+          opacity: 1;
+          transform: translateY(0);
+        }
         .v2-btn {
           border-radius: 999px;
           padding: 7px 12px;
@@ -1991,6 +2775,20 @@ export function AskmoreV2InterviewApp() {
           background: var(--color-chip);
           color: var(--color-text);
           font-weight: 600;
+        }
+        .v2-ai-thinking-btn {
+          background: linear-gradient(135deg, #fff6d8 0%, #f0d783 100%);
+          color: #6f4e12;
+          border: 1px solid #d9ba63;
+          box-shadow: 0 0 0 0 rgba(217, 186, 99, 0.38);
+        }
+        .v2-ai-thinking-btn.ready {
+          animation: v2-ai-thinking-breathe 2.2s ease-in-out infinite;
+        }
+        .v2-ai-thinking-btn.locked {
+          background: linear-gradient(135deg, #fff8df 0%, #f3e4b4 100%);
+          color: #9a7727;
+          border-color: #e7d8a8;
         }
         .v2-btn:disabled {
           opacity: 0.65;
@@ -2377,7 +3175,6 @@ export function AskmoreV2InterviewApp() {
           display: flex;
           flex-direction: column;
           gap: 10px;
-          min-height: 720px;
         }
         .v2-side-block {
           border: 1px solid var(--color-line);
@@ -2616,6 +3413,116 @@ export function AskmoreV2InterviewApp() {
           font-size: 12px;
           color: var(--color-text);
         }
+        .v2-insight-preview {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          flex: 1;
+          min-height: 210px;
+        }
+        .v2-ai-thinking-progress-wrap {
+          border: 1px solid #ead9a4;
+          background: #fffaf0;
+          border-radius: 10px;
+          padding: 8px 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .v2-ai-thinking-progress-head {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+          color: #7a5a1f;
+          font-weight: 600;
+        }
+        .v2-ai-thinking-progress-bar {
+          width: 100%;
+          height: 7px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: #f2e6c7;
+        }
+        .v2-ai-thinking-progress-bar > div {
+          height: 100%;
+          background: linear-gradient(90deg, #dbc075 0%, #caa24a 100%);
+          transition: width 320ms ease;
+        }
+        .v2-ai-thinking-progress-meta {
+          font-size: 11px;
+          color: #8a6a2a;
+        }
+        .v2-insight-core {
+          font-size: 13px;
+          line-height: 1.55;
+          color: var(--color-text);
+          flex: 1;
+        }
+        .v2-insight-footer {
+          margin-top: auto;
+          padding-top: 8px;
+          border-top: 1px solid #eee2c1;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .v2-insight-meta {
+          font-size: 11px;
+          color: var(--color-muted);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .v2-domain-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          border-radius: 999px;
+          padding: 3px 9px;
+          border: 1px solid #e4cb89;
+          background: #fff7df;
+          color: #7d5c18;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .v2-insight-datetime {
+          color: #8b7f64;
+          font-size: 11px;
+        }
+        .v2-insight-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .v2-insight-section h4 {
+          margin: 0 0 6px;
+          font-size: 13px;
+          color: #7c2d12;
+        }
+        .v2-draft1-debug {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .v2-insight-trace summary {
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 600;
+          color: #7c2d12;
+          margin-bottom: 6px;
+        }
+        .v2-quality-warning {
+          border: 1px solid #fbbf24;
+          background: #fffbeb;
+          color: #92400e;
+          border-radius: 10px;
+          padding: 8px 10px;
+          font-size: 12px;
+          line-height: 1.45;
+        }
         .v2-error {
           border: 1px solid #fca5a5;
           background: #fef2f2;
@@ -2672,6 +3579,24 @@ export function AskmoreV2InterviewApp() {
           line-height: 1.75;
           color: #1f2937;
           font-size: 14px;
+        }
+        .v2-markdown :global(p) {
+          margin: 0 0 10px;
+        }
+        .v2-markdown :global(p:last-child) {
+          margin-bottom: 0;
+        }
+        .v2-markdown :global(ul),
+        .v2-markdown :global(ol) {
+          margin: 6px 0 10px 20px;
+          padding: 0;
+        }
+        .v2-markdown :global(li) {
+          margin: 4px 0;
+        }
+        .v2-markdown :global(strong) {
+          color: #111827;
+          font-weight: 700;
         }
         .v2-summary-json {
           margin: 0;
@@ -2740,6 +3665,20 @@ export function AskmoreV2InterviewApp() {
             transform: rotate(360deg);
           }
         }
+        @keyframes v2-ai-thinking-breathe {
+          0% {
+            box-shadow: 0 0 0 0 rgba(217, 186, 99, 0.28);
+            filter: brightness(1);
+          }
+          50% {
+            box-shadow: 0 0 0 7px rgba(217, 186, 99, 0);
+            filter: brightness(1.04);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(217, 186, 99, 0);
+            filter: brightness(1);
+          }
+        }
         @media (max-width: 1100px) {
           .v2-meta-card {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2747,12 +3686,13 @@ export function AskmoreV2InterviewApp() {
           .v2-grid {
             grid-template-columns: 1fr;
           }
-          .v2-chat-panel,
-          .v2-side-panel {
-            min-height: auto;
-          }
-          .v2-side-panel {
+          .v2-right-stack {
             order: 2;
+          }
+          .v2-chat-panel,
+          .v2-side-panel,
+          .v2-thinking-panel-card {
+            min-height: auto;
           }
         }
       `}</style>

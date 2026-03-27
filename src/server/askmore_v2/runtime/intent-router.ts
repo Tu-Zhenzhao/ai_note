@@ -22,11 +22,15 @@ function isCompletionCheckRequest(text: string): boolean {
 }
 
 function isHelpRequest(text: string): boolean {
-  return /(什么意思|怎么答|不会答|不知道怎么|举个例子|给我例子|例子描述|解释一下|怎么描述|怎么说|怎么回答|不确定你想知道什么|能举例吗|怎么判断|什么行为算|哪些行为算|怎么观察|判断标准|help|what do you mean|example|not sure how to answer|can you give examples|how to tell|what counts as|what signs)/i.test(text);
+  return /(怎么答|不会答|不知道怎么|举个例子|给我例子|例子描述|怎么描述|怎么说|怎么回答|不确定你想知道什么|能举例吗|help|example|not sure how to answer|can you give examples|how should i answer)/i.test(
+    text,
+  );
 }
 
 function isClarifyRequest(text: string): boolean {
-  return /(你是说|我理解对吗|确认一下|再确认|你指的是|clarify|did you mean|confirm this)/i.test(text);
+  return /(你是说|我理解对吗|确认一下|再确认|你指的是|你问的是哪种|前面那个|这个状态是指|这种状态是指|什么意思|什么叫|怎么判断|什么行为算|哪些行为算|怎么观察|判断标准|怎么算|标准是什么|clarify|did you mean|confirm this|what do you mean|what counts as|how to judge|definition|criteria)/i.test(
+    text,
+  );
 }
 
 function isDiscussion(text: string): boolean {
@@ -66,19 +70,19 @@ function deterministicFallback(params: {
     };
   }
 
+  if (isClarifyRequest(params.text)) {
+    return {
+      intent: "clarify_meaning",
+      confidence: 0.9,
+      rationale: "contains_clarify_signal",
+    };
+  }
+
   if (isHelpRequest(params.text)) {
     return {
       intent: "ask_for_help",
       confidence: 0.93,
       rationale: "contains_help_signal",
-    };
-  }
-
-  if (isClarifyRequest(params.text)) {
-    return {
-      intent: "clarify_meaning",
-      confidence: 0.88,
-      rationale: "contains_clarify_signal",
     };
   }
 
@@ -134,18 +138,18 @@ function applyRuleCorrections(params: {
       rationale: "completion_check_rule_override",
     };
   }
+  if (isClarifyRequest(trimmed)) {
+    return {
+      intent: "clarify_meaning",
+      confidence: 0.94,
+      rationale: "explicit_clarify_rule_override",
+    };
+  }
   if (isHelpRequest(trimmed)) {
     return {
       intent: "ask_for_help",
       confidence: 0.97,
       rationale: "explicit_help_rule_override",
-    };
-  }
-  if (isClarifyRequest(trimmed)) {
-    return {
-      intent: "clarify_meaning",
-      confidence: 0.92,
-      rationale: "explicit_clarify_rule_override",
     };
   }
   if (params.pendingIntent === "ask_for_help" && isQuestionLike(trimmed)) {

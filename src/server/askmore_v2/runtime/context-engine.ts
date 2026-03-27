@@ -1,9 +1,11 @@
 import {
+  AskmoreV2ConfirmedReferent,
   AskmoreV2FlowQuestion,
   AskmoreV2Intent,
   AskmoreV2Message,
   AskmoreV2PendingCommitment,
   AskmoreV2QuestionNode,
+  AskmoreV2ReferentSource,
   AskmoreV2Session,
   AskmoreV2SessionState,
   AskmoreV2UnresolvedReason,
@@ -39,6 +41,8 @@ export interface RuntimeContextSnapshot {
     }>;
   };
   structured_knowledge: Record<string, unknown>;
+  recent_confirmed_referents: AskmoreV2ConfirmedReferent[];
+  cross_question_anchor: AskmoreV2ConfirmedReferent | null;
   unresolved_gaps: Array<{
     dimension_id: string;
     label: string;
@@ -82,6 +86,9 @@ export function ensureRuntimeStateDefaults(state: AskmoreV2SessionState): Askmor
       last_help_obstacle_layer: undefined,
       last_help_resolution_goal: undefined,
       last_help_reconnect_target: undefined,
+      last_clarify_subtype: undefined,
+      last_resolved_referent: undefined,
+      last_referent_source: undefined,
     };
   }
   if (!state.recent_user_turns) state.recent_user_turns = [];
@@ -90,6 +97,8 @@ export function ensureRuntimeStateDefaults(state: AskmoreV2SessionState): Askmor
   if (!state.node_runtime) state.node_runtime = {};
   if (!state.question_progress) state.question_progress = {};
   if (!state.structured_knowledge) state.structured_knowledge = {};
+  if (typeof state.latest_ai_thinking === "undefined") state.latest_ai_thinking = null;
+  if (typeof state.ai_thinking_meta === "undefined") state.ai_thinking_meta = null;
   return state;
 }
 
@@ -192,6 +201,123 @@ function isGapActionable(params: {
   return params.confidence > 0.1;
 }
 
+function parseStructuredKnowledgeKey(key: string): { questionId: string | null; dimensionId: string | null } {
+  const match = key.match(/^([^_]+)__([\w-]+)$/);
+  if (!match) return { questionId: null, dimensionId: null };
+  return {
+    questionId: match[1] ?? null,
+    dimensionId: match[2] ?? null,
+  };
+}
+
+function compactReferentValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (!normalized) return null;
+    return normalized.length <= 80 ? normalized : `${normalized.slice(0, 80)}...`;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value.find((item) => typeof item === "string" && item.trim().length > 0);
+    if (typeof first === "string") return compactReferentValue(first);
+  }
+  return null;
+}
+
+function addReferent(params: {
+  bucket: AskmoreV2ConfirmedReferent[];
+  seen: Set<string>;
+  item: AskmoreV2ConfirmedReferent;
+}) {
+  const normalizedValue = params.item.value.replace(/\s+/g, " ").trim();
+  if (!normalizedValue) return;
+  const dedupeKey = `${params.item.question_id ?? "none"}::${params.item.dimension_id ?? "none"}::${normalizedValue.toLowerCase()}`;
+  if (params.seen.has(dedupeKey)) return;
+  params.seen.add(dedupeKey);
+  params.bucket.push({
+    ...params.item,
+    value: normalizedValue,
+  });
+}
+
+function sourcePriority(source: AskmoreV2ReferentSource): number {
+  if (source === "previous_question") return 0;
+  if (source === "active_question") return 1;
+  return 2;
+}
+
+function buildReferentSnapshot(params: {
+  state: AskmoreV2SessionState;
+  activeQuestionId: string | null;
+  questions: AskmoreV2FlowQuestion[];
+}): {
+  recent_confirmed_referents: AskmoreV2ConfirmedReferent[];
+  cross_question_anchor: AskmoreV2ConfirmedReferent | null;
+} {
+  const bucket: AskmoreV2ConfirmedReferent[] = [];
+  const seen = new Set<string>();
+  const activeIndex = params.activeQuestionId
+    ? params.questions.findIndex((item) => item.question_id === params.activeQuestionId)
+    : -1;
+  const previousQuestionId = activeIndex > 0 ? params.questions[activeIndex - 1]?.question_id ?? null : null;
+
+  const collectNodeReferents = (questionId: string | null, source: AskmoreV2ReferentSource) => {
+    if (!questionId) return;
+    const node = params.state.nodes[questionId];
+    const nodeRuntime = params.state.node_runtime[questionId];
+    if (!node || !nodeRuntime) return;
+    for (const dimension of node.target_dimensions) {
+      const confidence = Number(nodeRuntime.dimension_confidence?.[dimension.id] ?? 0);
+      if (confidence < 0.6) continue;
+      const rawValue = nodeRuntime.captured_dimensions?.[dimension.id];
+      const compactValue = compactReferentValue(rawValue);
+      if (!compactValue) continue;
+      addReferent({
+        bucket,
+        seen,
+        item: {
+          question_id: questionId,
+          dimension_id: dimension.id,
+          label: dimension.label,
+          value: compactValue,
+          source,
+        },
+      });
+    }
+  };
+
+  collectNodeReferents(previousQuestionId, "previous_question");
+  collectNodeReferents(params.activeQuestionId, "active_question");
+
+  for (const [key, field] of Object.entries(params.state.structured_knowledge ?? {})) {
+    const confirmed = Boolean(field?.confirmed) || Number(field?.confidence ?? 0) >= 0.75;
+    if (!confirmed) continue;
+    const compactValue = compactReferentValue(field?.value);
+    if (!compactValue) continue;
+    const parsed = parseStructuredKnowledgeKey(key);
+    addReferent({
+      bucket,
+      seen,
+      item: {
+        question_id: parsed.questionId,
+        dimension_id: parsed.dimensionId,
+        label: parsed.dimensionId ?? key,
+        value: compactValue,
+        source: "structured_knowledge",
+      },
+    });
+  }
+
+  const sorted = bucket
+    .slice(0, 12)
+    .sort((a, b) => sourcePriority(a.source) - sourcePriority(b.source));
+
+  return {
+    recent_confirmed_referents: sorted,
+    cross_question_anchor: sorted[0] ?? null,
+  };
+}
+
 export function buildRuntimeContextSnapshot(params: {
   session: AskmoreV2Session;
   questions: AskmoreV2FlowQuestion[];
@@ -256,6 +382,11 @@ export function buildRuntimeContextSnapshot(params: {
 
   const questionText = activeNode?.user_facing_entry ?? activeQuestion?.entry_question ?? "";
   const dimensionLabels = activeNode?.target_dimensions.map((item) => item.label) ?? [];
+  const referentSnapshot = buildReferentSnapshot({
+    state,
+    activeQuestionId: questionId,
+    questions: params.questions,
+  });
   const recentMemory = compactRecentMemory({
     state,
     recentMessages: params.recentMessages ?? [],
@@ -286,6 +417,8 @@ export function buildRuntimeContextSnapshot(params: {
     },
     recent_memory: recentMemory,
     structured_knowledge: toKnowledgeSnapshot(state),
+    recent_confirmed_referents: referentSnapshot.recent_confirmed_referents,
+    cross_question_anchor: referentSnapshot.cross_question_anchor,
     unresolved_gaps: unresolvedGaps,
     pending_commitments: pendingCommitments,
     ui_state_hint: {

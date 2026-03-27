@@ -20,7 +20,9 @@ interface PromptOptions {
   system: string;
   prompt: string;
   primaryModel?: string;
+  coPrimaryModel?: string;
   fallbackModel?: string;
+  timeoutMs?: number;
 }
 
 export interface ModelRouteResult {
@@ -132,6 +134,17 @@ function providerFor(name: string): string {
   return "deepseek";
 }
 
+function errorSummary(error: unknown): string {
+  if (!error) return "unknown";
+  if (error instanceof Error) return error.message || error.name || "unknown";
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 function hasKeyForModel(name: string): boolean {
   if (name.startsWith("gpt")) return !!process.env.OPENAI_API_KEY;
   if (name.startsWith("gemini")) return !!process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -151,7 +164,7 @@ async function withFallback<T>(
 ): Promise<T> {
   const primaryName = selectPrimaryModel(opts.primaryModel);
   const fallbackName = opts.fallbackModel ?? DEFAULT_FALLBACK;
-  const coPrimary = primaryName.startsWith("gemini") ? DEFAULT_GPT : DEFAULT_GEMINI;
+  const coPrimary = opts.coPrimaryModel ?? (primaryName.startsWith("gemini") ? DEFAULT_GPT : DEFAULT_GEMINI);
 
   if (
     !hasKeyForModel(primaryName) &&
@@ -163,9 +176,13 @@ async function withFallback<T>(
     );
   }
 
+  const timeoutMs = typeof opts.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
+    ? Math.max(1_000, Math.floor(opts.timeoutMs))
+    : MODEL_TIMEOUT_MS;
+
   const runWithTimeout = async (modelName: string): Promise<T> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await run(modelName, controller.signal);
     } finally {
@@ -173,28 +190,37 @@ async function withFallback<T>(
     }
   };
 
+  let lastError: unknown = null;
   try {
     const result = await runWithTimeout(primaryName);
     lastRouteResult = { modelUsed: primaryName, provider: providerFor(primaryName) };
     return result;
-  } catch {
+  } catch (error) {
+    lastError = error;
     if (hasKeyForModel(coPrimary) && coPrimary !== primaryName) {
       try {
         const result = await runWithTimeout(coPrimary);
         lastRouteResult = { modelUsed: coPrimary, provider: providerFor(coPrimary) };
         return result;
-      } catch {
+      } catch (coPrimaryError) {
+        lastError = coPrimaryError;
         // fall through to deepseek
       }
     }
 
     if (hasKeyForModel(fallbackName) && fallbackName !== primaryName) {
-      const result = await runWithTimeout(fallbackName);
-      lastRouteResult = { modelUsed: fallbackName, provider: providerFor(fallbackName) };
-      return result;
+      try {
+        const result = await runWithTimeout(fallbackName);
+        lastRouteResult = { modelUsed: fallbackName, provider: providerFor(fallbackName) };
+        return result;
+      } catch (fallbackError) {
+        lastError = fallbackError;
+      }
     }
 
-    throw new Error(`All model providers failed (primary: ${primaryName}, fallback: ${fallbackName})`);
+    throw new Error(
+      `All model providers failed (primary: ${primaryName}, fallback: ${fallbackName}, timeoutMs: ${timeoutMs}). Last error: ${errorSummary(lastError)}`,
+    );
   }
 }
 

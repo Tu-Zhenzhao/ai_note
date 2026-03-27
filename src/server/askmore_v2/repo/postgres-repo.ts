@@ -1,6 +1,7 @@
 import {
   AskmoreV2EventChannel,
   AskmoreV2FlowVersion,
+  AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
   AskmoreV2TurnCommitRecord,
@@ -335,5 +336,54 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
         record.created_at,
       ],
     );
+  }
+
+  async createInsightRun(record: AskmoreV2InsightRunRecord): Promise<void> {
+    ensureDb();
+    await dbQuery(
+      `insert into askmore_v2_insight_runs
+       (id, session_id, trigger_source, domain, subdomain, language, pack_trace_jsonb, input_snapshot_jsonb, result_jsonb, quality_flags_jsonb, error_text, created_at)
+       values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12)`,
+      [
+        record.id,
+        record.session_id,
+        record.trigger_source,
+        record.domain,
+        record.subdomain,
+        record.language,
+        toJsonbParam(record.pack_trace_jsonb),
+        toJsonbParam(record.input_snapshot_jsonb),
+        toJsonbParam(record.result_jsonb),
+        toJsonbParam(record.quality_flags_jsonb),
+        record.error_text,
+        record.created_at,
+      ],
+    );
+  }
+
+  async listInsightRuns(sessionId: string, limit = 20): Promise<AskmoreV2InsightRunRecord[]> {
+    ensureDb();
+    const result = await dbQuery(
+      `select *
+       from askmore_v2_insight_runs
+       where session_id = $1
+       order by created_at desc
+       limit $2`,
+      [sessionId, limit],
+    );
+    return result.rows as AskmoreV2InsightRunRecord[];
+  }
+
+  async getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null> {
+    ensureDb();
+    const result = await dbQuery(
+      `select *
+       from askmore_v2_insight_runs
+       where session_id = $1
+       order by created_at desc
+       limit 1`,
+      [sessionId],
+    );
+    return (result.rows[0] as AskmoreV2InsightRunRecord | undefined) ?? null;
   }
 }

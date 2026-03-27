@@ -43,8 +43,8 @@ function makeSession(): AskmoreV2Session {
     node_runtime: {
       q1: {
         question_id: "q1",
-        captured_dimensions: {},
-        dimension_confidence: { d1: 0.2, d2: 0.1 },
+        captured_dimensions: { d1: "最近一周开始", d2: "猫砂盆外附近" },
+        dimension_confidence: { d1: 0.82, d2: 0.72 },
         dimension_soft_confidence: {},
         dimension_state: {},
         dimension_unresolved_reason: { d1: "ambiguous_temporal", d2: "semantic_unmapped" },
@@ -65,7 +65,14 @@ function makeSession(): AskmoreV2Session {
       },
     },
     question_progress: {},
-    structured_knowledge: {},
+    structured_knowledge: {
+      q1__d1: {
+        value: "最近一周开始",
+        confidence: 0.9,
+        confirmed: true,
+        updated_at: new Date().toISOString(),
+      },
+    },
     latest_summary_text: null,
     latest_structured_report: null,
     runtime_meta: {},
@@ -131,6 +138,9 @@ describe("askmore v2 context engine phase3", () => {
     expect(snapshot.recent_memory.message_snippets.length).toBeLessThanOrEqual(8);
     expect(snapshot.unresolved_gaps.some((gap) => gap.severity === "high")).toBe(true);
     expect(snapshot.unresolved_gaps.some((gap) => gap.actionable)).toBe(true);
+    expect(Array.isArray(snapshot.recent_confirmed_referents)).toBe(true);
+    expect(snapshot.recent_confirmed_referents.length).toBeGreaterThan(0);
+    expect(typeof snapshot.cross_question_anchor?.value).toBe("string");
     expect(Array.isArray(snapshot.pending_commitments)).toBe(true);
   });
 });

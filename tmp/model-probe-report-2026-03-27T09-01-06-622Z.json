@@ -1,0 +1,98 @@
+{
+  "started_at": "2026-03-27T08:59:03.408Z",
+  "timeout_ms": 30000,
+  "rounds": 2,
+  "targets": [
+    {
+      "model": "gpt-5",
+      "provider": "openai",
+      "key_env": "OPENAI_API_KEY",
+      "key_available": true,
+      "probes": [
+        {
+          "type": "text",
+          "round": 1,
+          "started_at": "2026-03-27T08:59:03.417Z",
+          "duration_ms": 6636,
+          "ok": true,
+          "output_preview": "model_ok"
+        },
+        {
+          "type": "object",
+          "round": 1,
+          "started_at": "2026-03-27T08:59:10.053Z",
+          "duration_ms": 30006,
+          "ok": false,
+          "error": "AbortError: This operation was aborted"
+        },
+        {
+          "type": "text",
+          "round": 2,
+          "started_at": "2026-03-27T08:59:40.059Z",
+          "duration_ms": 5637,
+          "ok": true,
+          "output_preview": "model_ok"
+        },
+        {
+          "type": "object",
+          "round": 2,
+          "started_at": "2026-03-27T08:59:45.696Z",
+          "duration_ms": 24294,
+          "ok": true,
+          "output_preview": "{\"professional_read\":\"电商转化率近两周下滑，疑因结账性能劣化与流量结构变差。\",\"what_i_would_pay_attention_to\":\"新客/老客转化、结账漏斗各步放弃率、渠道ROI、页面性能与错误率。\",\"practical_guidance\":\"先修复结账性能与报错，简化表单与支付；暂停低ROI投放；首单券与免运A/B；优化详情首屏信息与信任要素。\",\"boundary_notes\":[\"仅基于GA与"
+        }
+      ],
+      "summary": {
+        "total": 4,
+        "passed": 3,
+        "failed": 1
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-preview",
+      "provider": "google",
+      "key_env": "GOOGLE_GENERATIVE_AI_API_KEY",
+      "key_available": true,
+      "probes": [
+        {
+          "type": "text",
+          "round": 1,
+          "started_at": "2026-03-27T09:00:09.991Z",
+          "duration_ms": 17332,
+          "ok": true,
+          "output_preview": "model_ok"
+        },
+        {
+          "type": "object",
+          "round": 1,
+          "started_at": "2026-03-27T09:00:27.323Z",
+          "duration_ms": 14592,
+          "ok": true,
+          "output_preview": "{\"professional_read\":\"团队目前处于高压疲劳期，沟通效率低下且存在潜在的信任危机。\",\"what_i_would_pay_attention_to\":\"核心成员的情绪变化、任务分配的合理性以及跨部门协作的瓶颈。\",\"practical_guidance\":\"立即开展一对一沟通，重新评估并调整本季度KPI，引入敏捷站会以提升透明度。\",\"boundary_notes\":[\"本建议仅适用于内部团队管理\",\"不涉及薪酬调整"
+        },
+        {
+          "type": "text",
+          "round": 2,
+          "started_at": "2026-03-27T09:00:41.915Z",
+          "duration_ms": 5382,
+          "ok": true,
+          "output_preview": "model_ok"
+        },
+        {
+          "type": "object",
+          "round": 2,
+          "started_at": "2026-03-27T09:00:47.297Z",
+          "duration_ms": 19325,
+          "ok": true,
+          "output_preview": "{\"professional_read\":\"团队近期表现出明显的职业倦怠与沟通效率下降。\",\"what_i_would_pay_attention_to\":\"核心员工的离职倾向及项目交付延期风险。\",\"practical_guidance\":\"立即开展一对一面谈，重新分配工作负载并提供心理支持。\",\"boundary_notes\":[\"仅基于当前观察，未包含跨部门因素。\",\"不构成医疗或专业心理干预建议。\"],\"underlying_d"
+        }
+      ],
+      "summary": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0
+      }
+    }
+  ],
+  "finished_at": "2026-03-27T09:01:06.622Z"
+}

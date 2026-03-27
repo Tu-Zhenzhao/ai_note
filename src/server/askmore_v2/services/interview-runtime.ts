@@ -10,6 +10,7 @@ import { composeTurnResponse } from "@/server/askmore_v2/services/response-compo
 import { generateMicroConfirmation } from "@/server/askmore_v2/services/micro-confirm-generator";
 import { buildQuestionNode, compileQuestionNodes } from "@/server/askmore_v2/services/node-compiler";
 import { understandTurnAndDecide } from "@/server/askmore_v2/services/turn-understanding";
+import { tryAutoGenerateInsightOnCompletion } from "@/server/askmore_v2/insight/service";
 import {
   buildSemanticDimensionsFromLabels,
   deriveCompletionCriteriaFromDimensions,
@@ -336,6 +337,8 @@ function buildInitialState(params: {
     structured_knowledge: {},
     latest_summary_text: null,
     latest_structured_report: null,
+    latest_ai_thinking: null,
+    ai_thinking_meta: null,
   };
 }
 
@@ -1519,6 +1522,13 @@ export async function generateAskmoreV2Summary(params: {
   }
 
   await repo.updateSession(session);
+
+  if (params.mode === "final") {
+    await tryAutoGenerateInsightOnCompletion({
+      sessionId: params.sessionId,
+      language: params.language,
+    });
+  }
 
   await persistAssistantMessage({
     sessionId: params.sessionId,

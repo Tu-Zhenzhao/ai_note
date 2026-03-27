@@ -52,6 +52,8 @@ function makeContext(overrides: Partial<RuntimeContextSnapshot> = {}): RuntimeCo
       message_snippets: [],
     },
     structured_knowledge: {},
+    recent_confirmed_referents: [],
+    cross_question_anchor: null,
     unresolved_gaps: [{
       dimension_id: "d1",
       label: "频率",
@@ -88,14 +90,14 @@ describe("askmore v2 intent router phase2", () => {
     expect(result.rationale).toContain("help");
   });
 
-  test("observation-standard question routes to ask_for_help", async () => {
+  test("observation-standard question routes to clarify_meaning", async () => {
     const result = await routeIntent({
       userMessage: "怎么判断紧张感呢？什么行为算呢？",
       context: makeContext(),
     });
 
-    expect(result.intent).toBe("ask_for_help");
-    expect(result.rationale).toContain("help");
+    expect(result.intent).toBe("clarify_meaning");
+    expect(result.rationale).toContain("clarify");
   });
 
   test("pending ask_for_help keeps help on question-like continuation", async () => {

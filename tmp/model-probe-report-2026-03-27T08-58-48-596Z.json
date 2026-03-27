@@ -1,0 +1,98 @@
+{
+  "started_at": "2026-03-27T08:58:00.442Z",
+  "timeout_ms": 30000,
+  "rounds": 2,
+  "targets": [
+    {
+      "model": "gpt-5",
+      "provider": "openai",
+      "key_env": "OPENAI_API_KEY",
+      "key_available": true,
+      "probes": [
+        {
+          "type": "text",
+          "round": 1,
+          "started_at": "2026-03-27T08:58:00.443Z",
+          "duration_ms": 6050,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND api.openai.com"
+        },
+        {
+          "type": "object",
+          "round": 1,
+          "started_at": "2026-03-27T08:58:06.493Z",
+          "duration_ms": 6017,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND api.openai.com"
+        },
+        {
+          "type": "text",
+          "round": 2,
+          "started_at": "2026-03-27T08:58:12.510Z",
+          "duration_ms": 6021,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND api.openai.com"
+        },
+        {
+          "type": "object",
+          "round": 2,
+          "started_at": "2026-03-27T08:58:18.531Z",
+          "duration_ms": 6017,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND api.openai.com"
+        }
+      ],
+      "summary": {
+        "total": 4,
+        "passed": 0,
+        "failed": 4
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-preview",
+      "provider": "google",
+      "key_env": "GOOGLE_GENERATIVE_AI_API_KEY",
+      "key_available": true,
+      "probes": [
+        {
+          "type": "text",
+          "round": 1,
+          "started_at": "2026-03-27T08:58:24.548Z",
+          "duration_ms": 6014,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND generativelanguage.googleapis.com"
+        },
+        {
+          "type": "object",
+          "round": 1,
+          "started_at": "2026-03-27T08:58:30.562Z",
+          "duration_ms": 6012,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND generativelanguage.googleapis.com"
+        },
+        {
+          "type": "text",
+          "round": 2,
+          "started_at": "2026-03-27T08:58:36.574Z",
+          "duration_ms": 6009,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND generativelanguage.googleapis.com"
+        },
+        {
+          "type": "object",
+          "round": 2,
+          "started_at": "2026-03-27T08:58:42.583Z",
+          "duration_ms": 6013,
+          "ok": false,
+          "error": "AI_RetryError: Failed after 3 attempts. Last error: Cannot connect to API: getaddrinfo ENOTFOUND generativelanguage.googleapis.com"
+        }
+      ],
+      "summary": {
+        "total": 4,
+        "passed": 0,
+        "failed": 4
+      }
+    }
+  ],
+  "finished_at": "2026-03-27T08:58:48.596Z"
+}

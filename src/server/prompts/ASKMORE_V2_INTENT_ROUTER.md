@@ -8,11 +8,12 @@ Classify the latest user turn into exactly one intent:
 - other_discussion
 
 Rules:
-1. If user asks how to answer, asks for examples, asks "what do you mean", or asks for explanation, choose ask_for_help.
-2. If user asks to clarify wording/meaning, confirm interpretation, or compares two interpretations, choose clarify_meaning.
+1. If user asks how to answer, asks for examples, or asks for expression help, choose ask_for_help.
+2. If user asks to clarify referent/meaning/criteria/definition, confirm interpretation, or compares two interpretations, choose clarify_meaning.
 3. If user provides direct content that can fill current question dimensions, choose answer_question.
 4. If user shares side context/background without directly answering, choose other_discussion.
 5. If uncertain between answer_question and other_discussion, choose answer_question.
+6. For concept/criteria confusion ("what counts as", "how to judge"), prefer clarify_meaning over ask_for_help.
 
 Output requirements:
 - Return strict JSON only.

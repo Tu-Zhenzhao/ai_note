@@ -48,7 +48,10 @@ const COMPLETION_JUDGE_FALLBACK =
   "You are AskMore V3 completion judge. Return strict JSON for readiness and early-stop recommendation with conservative criteria.";
 
 const INTENT_ROUTER_FALLBACK =
-  "You are AskMore V3 intent router. Classify latest user turn into one intent: answer_question | ask_for_help | clarify_meaning | other_discussion. Prioritize ask_for_help when user asks how to answer or asks for examples/explanation. Prioritize clarify_meaning when user asks to confirm wording/meaning. If uncertain between answer_question and other_discussion, choose answer_question. Return strict JSON only.";
+  "You are AskMore V3 intent router. Classify latest user turn into one intent: answer_question | ask_for_help | clarify_meaning | other_discussion. Prioritize ask_for_help for answerability/example requests. Prioritize clarify_meaning for referent/meaning/criteria clarification. If uncertain between answer_question and other_discussion, choose answer_question. Return strict JSON only.";
+
+const CLARIFY_SUBTYPE_FALLBACK =
+  "You are AskMore V3 clarify subtype router. Classify clarify_meaning turn into referent_clarify | concept_clarify | value_clarify. Return strict JSON only.";
 
 const UNDERSTANDING_SUMMARY_FALLBACK =
   "You are AskMore V3 understanding-summary event writer. Write one concise, natural, professional user-facing sentence that reflects what was understood from the latest turn, grounded in provided facts only.";
@@ -70,6 +73,13 @@ const PRESENTATION_MICRO_CONFIRM_FALLBACK =
 
 const PRESENTATION_TRANSITION_FALLBACK =
   "For transition blocks: connect from current understanding and explain why the next question is asked.";
+
+const AI_THINKING_SYSTEM_BASE_V2_FALLBACK = "";
+const AI_THINKING_MENTAL_HEALTH_INTAKE_V2_FALLBACK = "";
+const AI_THINKING_BUSINESS_GENERAL_V2_FALLBACK = "";
+const AI_THINKING_PET_CLINIC_GENERAL_V2_FALLBACK = "";
+const AI_THINKING_STAGE_B_EXPLORE_V2_FALLBACK = "";
+const AI_THINKING_STAGE_B_WRITE_V2_FALLBACK = "";
 
 export function askmoreV2QuestionRefinerPrompt(): string {
   return loadPromptFile("ASKMORE_V2_QUESTION_REFINER.md", QUESTION_REFINER_FALLBACK);
@@ -119,6 +129,10 @@ export function askmoreV2IntentRouterPrompt(): string {
   return loadPromptFile("ASKMORE_V2_INTENT_ROUTER.md", INTENT_ROUTER_FALLBACK);
 }
 
+export function askmoreV2ClarifySubtypePrompt(): string {
+  return loadPromptFile("ASKMORE_V2_CLARIFY_SUBTYPE.md", CLARIFY_SUBTYPE_FALLBACK);
+}
+
 export function askmoreV2UnderstandingSummaryPrompt(): string {
   return loadPromptFile("ASKMORE_V2_UNDERSTANDING_SUMMARY.md", UNDERSTANDING_SUMMARY_FALLBACK);
 }
@@ -135,6 +149,15 @@ export interface AskmoreV2PresentationPromptPack {
   transition: string;
 }
 
+export interface AskmoreV2AiThinkingPromptAssets {
+  system_base_prompt_v2: string;
+  stage_b_explore_v2: string;
+  stage_b_write_v2: string;
+  mental_health_intake_v2: string;
+  business_general_v2: string;
+  pet_clinic_general_v2: string;
+}
+
 export function askmoreV2PresentationPromptPack(): AskmoreV2PresentationPromptPack {
   return {
     core: loadPromptFile("ASKMORE_PRESENTATION_CORE.md", PRESENTATION_CORE_FALLBACK),
@@ -142,5 +165,34 @@ export function askmoreV2PresentationPromptPack(): AskmoreV2PresentationPromptPa
     help: loadPromptFile("ASKMORE_PRESENTATION_HELP.md", PRESENTATION_HELP_FALLBACK),
     microConfirm: loadPromptFile("ASKMORE_PRESENTATION_MICRO_CONFIRM.md", PRESENTATION_MICRO_CONFIRM_FALLBACK),
     transition: loadPromptFile("ASKMORE_PRESENTATION_TRANSITION.md", PRESENTATION_TRANSITION_FALLBACK),
+  };
+}
+
+export function askmoreV2AiThinkingPromptAssets(): AskmoreV2AiThinkingPromptAssets {
+  return {
+    system_base_prompt_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_SYSTEM_BASE_V2.md",
+      AI_THINKING_SYSTEM_BASE_V2_FALLBACK,
+    ),
+    stage_b_explore_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_STAGE_B_EXPLORE_V2.md",
+      AI_THINKING_STAGE_B_EXPLORE_V2_FALLBACK,
+    ),
+    stage_b_write_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_STAGE_B_WRITE_V2.md",
+      AI_THINKING_STAGE_B_WRITE_V2_FALLBACK,
+    ),
+    mental_health_intake_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_MENTAL_HEALTH_INTAKE_V2.md",
+      AI_THINKING_MENTAL_HEALTH_INTAKE_V2_FALLBACK,
+    ),
+    business_general_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_BUSINESS_GENERAL_V2.md",
+      AI_THINKING_BUSINESS_GENERAL_V2_FALLBACK,
+    ),
+    pet_clinic_general_v2: loadPromptFile(
+      "ASKMORE_V2_AI_THINKING_PET_CLINIC_GENERAL_V2.md",
+      AI_THINKING_PET_CLINIC_GENERAL_V2_FALLBACK,
+    ),
   };
 }

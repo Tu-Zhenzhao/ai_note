@@ -11,6 +11,7 @@ import { routeIntent } from "@/server/askmore_v2/runtime/intent-router";
 import { logAskmoreRuntime } from "@/server/askmore_v2/runtime/runtime-logger";
 import { composeAssistantMessageFromEvents, eventsToResponseBlocks } from "@/server/askmore_v2/events/event-builder";
 import { buildVisibleEvents } from "@/server/askmore_v2/presentation/visible-response-director";
+import { tryAutoGenerateInsightOnCompletion } from "@/server/askmore_v2/insight/service";
 import { dbQuery, getPool } from "@/server/repo/db";
 import {
   AskmoreV2FlowQuestion,
@@ -274,6 +275,8 @@ export class SessionRun {
         })),
         pending_commitments: context.pending_commitments.length,
         recent_memory_size: context.recent_memory.message_snippets.length,
+        recent_referents: context.recent_confirmed_referents.length,
+        cross_question_anchor: context.cross_question_anchor?.value ?? null,
         expired_commitments: expiredCommitments.length,
       });
       this.emitPhase("assemble_context", "done");
@@ -481,6 +484,19 @@ export class SessionRun {
         debug_event_count: result.debug_events.length,
         debug_event_types: result.debug_events.map((event) => event.event_type),
       });
+
+      if (session.status === "completed") {
+        await tryAutoGenerateInsightOnCompletion({
+          sessionId: this.input.sessionId,
+          language: this.input.language,
+        });
+        const refreshed = await repo.getSession(this.input.sessionId);
+        if (refreshed) {
+          result.state = refreshed.state_jsonb;
+          session.state_jsonb = refreshed.state_jsonb;
+          session.state_version = refreshed.state_version;
+        }
+      }
 
       try {
         await repo.createTurnCommit({

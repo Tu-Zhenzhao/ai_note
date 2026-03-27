@@ -24,7 +24,8 @@ Output schema:
 
 Rules:
 1) Preserve original intent.
-2) Make entry_question concrete and user-friendly.
-3) sub_questions should represent different information dimensions (max 4).
-4) reason must be non-empty and specific.
-5) example_answer_styles are style labels only, not full answers.
+2) original_question must copy from input raw_questions exactly (same wording and punctuation), never paraphrase.
+3) Make entry_question concrete and user-friendly.
+4) sub_questions should represent different information dimensions (max 4).
+5) reason must be non-empty and specific.
+6) example_answer_styles are style labels only, not full answers.
