@@ -84,9 +84,20 @@ type AuthMePayload = {
     user: {
       email: string;
       display_name: string | null;
+      onboarding_completed_at: string | null;
     };
   };
   error?: string;
+};
+
+type OnboardingSlide = {
+  step: string;
+  title: string;
+  body: string;
+  visualTitle: string;
+  visualLines: string[];
+  accent: string;
+  accentSoft: string;
 };
 
 function difficultyColor(difficulty: "low" | "medium" | "high") {
@@ -200,6 +211,45 @@ const TARGET_OUTPUT_OPTIONS: BuilderSelectOption[] = [
   { value: "阶段性回访要点", label: "阶段性回访要点" },
 ];
 
+const ONBOARDING_SLIDES: OnboardingSlide[] = [
+  {
+    step: "01 写问题",
+    title: "先写下你想问的问题",
+    body: "一句话就够，先把真正要搞清楚的事情写进去。",
+    visualTitle: "Builder 第一步",
+    visualLines: ["输入原始问题", "一次可放多题", "问题越具体越稳"],
+    accent: "#0D7B64",
+    accentSoft: "#EAF5F2",
+  },
+  {
+    step: "02 AI 审阅",
+    title: "点一下 AI Review",
+    body: "系统会帮你拆问题、补追问，并给出建议问法。",
+    visualTitle: "Builder 第二步",
+    visualLines: ["AI 拆分问题", "补足追问路径", "给出建议问法"],
+    accent: "#B7791F",
+    accentSoft: "#FFF7E3",
+  },
+  {
+    step: "03 发布流程",
+    title: "确认后，发布流程",
+    body: "检查没问题后点击 Publish Flow。Builder 到这里就完成了。",
+    visualTitle: "Builder 第三步",
+    visualLines: ["检查结果", "确认采用方式", "发布正式流程"],
+    accent: "#7C3AED",
+    accentSoft: "#F3E8FF",
+  },
+  {
+    step: "04 开始访谈",
+    title: "去 Interview 开始访谈",
+    body: "进入访谈页，点击开始访谈，系统会按流程一步步提问。",
+    visualTitle: "下一步去哪里",
+    visualLines: ["进入 Interview", "点击开始访谈", "按流程完成访谈"],
+    accent: "#C2410C",
+    accentSoft: "#FFF1E8",
+  },
+];
+
 function withCompatibilityOption(options: BuilderSelectOption[], currentValue: string): BuilderSelectOption[] {
   if (!currentValue.trim()) return options;
   if (options.some((item) => item.value === currentValue)) return options;
@@ -225,6 +275,9 @@ export function AskmoreV2BuilderApp() {
   const [showPublishSuccess, setShowPublishSuccess] = useState(false);
   const [publishVersion, setPublishVersion] = useState<number | null>(null);
   const [interviewHintActive, setInterviewHintActive] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingIndex, setOnboardingIndex] = useState(0);
+  const [savingOnboarding, setSavingOnboarding] = useState(false);
   const [accountEmail, setAccountEmail] = useState("");
   const [accountDisplayName, setAccountDisplayName] = useState("");
   const [deletePanelOpen, setDeletePanelOpen] = useState(false);
@@ -246,6 +299,8 @@ export function AskmoreV2BuilderApp() {
     () => withCompatibilityOption(TARGET_OUTPUT_OPTIONS, targetOutputType),
     [targetOutputType],
   );
+  const currentOnboardingSlide = ONBOARDING_SLIDES[onboardingIndex];
+  const isLastOnboardingSlide = onboardingIndex === ONBOARDING_SLIDES.length - 1;
 
   async function loadActiveFlow() {
     setLoadingActive(true);
@@ -279,8 +334,28 @@ export function AskmoreV2BuilderApp() {
       if (!response.ok || !payload.authenticated || !payload.auth) return;
       setAccountEmail(payload.auth.user.email || "");
       setAccountDisplayName(payload.auth.user.display_name || "");
+      setShowOnboarding(!payload.auth.user.onboarding_completed_at);
     } catch {
       // ignore me fetch failures in builder view
+    }
+  }
+
+  async function completeOnboarding() {
+    setSavingOnboarding(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/auth/onboarding", { method: "POST" });
+      const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to save onboarding status");
+      }
+      setShowOnboarding(false);
+      setOnboardingIndex(0);
+      setNotice("欢迎使用 AskMore。先写问题，再 AI Review，最后发布流程。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save onboarding status");
+    } finally {
+      setSavingOnboarding(false);
     }
   }
 
@@ -1208,6 +1283,97 @@ export function AskmoreV2BuilderApp() {
         )}
       </div>
 
+      {showOnboarding && currentOnboardingSlide && (
+        <div className="v2-overlay v2-onboarding-overlay">
+          <div className="v2-onboarding-card">
+            <div className="v2-onboarding-copy">
+              <div
+                className="v2-onboarding-step"
+                style={{
+                  color: currentOnboardingSlide.accent,
+                  background: currentOnboardingSlide.accentSoft,
+                }}
+              >
+                {currentOnboardingSlide.step}
+              </div>
+              <div className="v2-onboarding-title">第一次用 AskMore，就记这 4 步</div>
+              <div className="v2-onboarding-headline">{currentOnboardingSlide.title}</div>
+              <div className="v2-onboarding-body">{currentOnboardingSlide.body}</div>
+              <div className="v2-onboarding-dots">
+                {ONBOARDING_SLIDES.map((slide, idx) => (
+                  <button
+                    key={slide.step}
+                    type="button"
+                    className={`v2-onboarding-dot ${idx === onboardingIndex ? "is-active" : ""}`}
+                    onClick={() => setOnboardingIndex(idx)}
+                    aria-label={`查看第 ${idx + 1} 步`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div
+              className="v2-onboarding-visual"
+              style={{
+                background: currentOnboardingSlide.accentSoft,
+                borderColor: `${currentOnboardingSlide.accent}33`,
+              }}
+            >
+              <div className="v2-onboarding-visual-label" style={{ color: currentOnboardingSlide.accent }}>
+                {currentOnboardingSlide.visualTitle}
+              </div>
+              <div className="v2-onboarding-visual-stack">
+                {currentOnboardingSlide.visualLines.map((line, idx) => (
+                  <div key={line} className="v2-onboarding-visual-line">
+                    <span
+                      className="v2-onboarding-visual-index"
+                      style={{
+                        color: currentOnboardingSlide.accent,
+                        background: "#fff",
+                      }}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span>{line}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="v2-onboarding-flow">
+                <span>写问题</span>
+                <span>AI Review</span>
+                <span>Publish</span>
+                <span>Interview</span>
+              </div>
+            </div>
+
+            <div className="v2-onboarding-footer">
+              <button
+                type="button"
+                className="v2-onboarding-secondary"
+                onClick={() => setOnboardingIndex((current) => Math.max(current - 1, 0))}
+                disabled={onboardingIndex === 0}
+              >
+                上一步
+              </button>
+              <button
+                type="button"
+                className="v2-onboarding-primary"
+                onClick={() => {
+                  if (isLastOnboardingSlide) {
+                    void completeOnboarding();
+                    return;
+                  }
+                  setOnboardingIndex((current) => Math.min(current + 1, ONBOARDING_SLIDES.length - 1));
+                }}
+                disabled={savingOnboarding}
+              >
+                {isLastOnboardingSlide ? (savingOnboarding ? "保存中..." : "开始使用") : "下一步"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {loadingPublish && (
         <div className="v2-overlay">
           <div className="v2-busy-card">
@@ -1261,6 +1427,162 @@ export function AskmoreV2BuilderApp() {
         @keyframes v2-fade-in {
           from { opacity: 0; }
           to { opacity: 1; }
+        }
+        .v2-onboarding-overlay {
+          z-index: 130;
+          background: rgba(24, 24, 23, 0.34);
+          backdrop-filter: blur(8px);
+        }
+        .v2-onboarding-card {
+          width: min(920px, 100%);
+          background: linear-gradient(180deg, #fffdfa 0%, #ffffff 100%);
+          border-radius: 30px;
+          border: 1px solid rgba(45, 43, 41, 0.08);
+          box-shadow: 0 28px 70px rgba(45, 43, 41, 0.18);
+          padding: 28px;
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+          gap: 22px;
+        }
+        .v2-onboarding-copy {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 14px;
+        }
+        .v2-onboarding-step {
+          align-self: flex-start;
+          border-radius: 999px;
+          padding: 6px 12px;
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+        }
+        .v2-onboarding-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--color-muted);
+        }
+        .v2-onboarding-headline {
+          font-size: clamp(28px, 4vw, 40px);
+          line-height: 1.08;
+          font-weight: 900;
+          color: #1f1d1b;
+          max-width: 12ch;
+        }
+        .v2-onboarding-body {
+          font-size: 15px;
+          line-height: 1.8;
+          color: #57534e;
+          max-width: 30ch;
+        }
+        .v2-onboarding-dots {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 6px;
+        }
+        .v2-onboarding-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          border: none;
+          padding: 0;
+          background: rgba(120, 117, 110, 0.28);
+          cursor: pointer;
+          transition: transform 0.18s ease, background 0.18s ease;
+        }
+        .v2-onboarding-dot.is-active {
+          background: var(--color-accent);
+          transform: scale(1.28);
+        }
+        .v2-onboarding-visual {
+          border-radius: 24px;
+          border: 1px solid;
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          justify-content: space-between;
+          min-height: 360px;
+        }
+        .v2-onboarding-visual-label {
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+        .v2-onboarding-visual-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .v2-onboarding-visual-line {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          background: rgba(255, 255, 255, 0.82);
+          border-radius: 18px;
+          padding: 14px 16px;
+          color: #1f1d1b;
+          font-size: 14px;
+          font-weight: 700;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65);
+        }
+        .v2-onboarding-visual-index {
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          font-weight: 800;
+          flex-shrink: 0;
+        }
+        .v2-onboarding-flow {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .v2-onboarding-flow span {
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 9px 10px;
+          text-align: center;
+          font-size: 11px;
+          font-weight: 800;
+          color: #44403c;
+          box-shadow: inset 0 0 0 1px rgba(45,43,41,0.06);
+        }
+        .v2-onboarding-footer {
+          grid-column: 1 / -1;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .v2-onboarding-secondary,
+        .v2-onboarding-primary {
+          border-radius: 999px;
+          padding: 10px 18px;
+          font-size: 13px;
+          font-weight: 800;
+          transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+        }
+        .v2-onboarding-secondary {
+          background: #f5f5f4;
+          color: #57534e;
+        }
+        .v2-onboarding-primary {
+          background: #1f1d1b;
+          color: #fff;
+          min-width: 104px;
+        }
+        .v2-onboarding-secondary:disabled,
+        .v2-onboarding-primary:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
         .v2-busy-card, .v2-success-card {
           min-width: 320px;
@@ -1425,6 +1747,27 @@ export function AskmoreV2BuilderApp() {
           .v2-help-tooltip {
             left: auto;
             right: 0;
+          }
+          .v2-onboarding-card {
+            padding: 22px;
+            grid-template-columns: 1fr;
+          }
+          .v2-onboarding-headline,
+          .v2-onboarding-body {
+            max-width: none;
+          }
+          .v2-onboarding-visual {
+            min-height: auto;
+          }
+          .v2-onboarding-flow {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .v2-onboarding-footer {
+            flex-direction: column-reverse;
+          }
+          .v2-onboarding-secondary,
+          .v2-onboarding-primary {
+            width: 100%;
           }
         }
         @keyframes v2PreviewPulse {

@@ -15,6 +15,7 @@ export interface AuthContext {
     id: string;
     email: string;
     display_name: string | null;
+    onboarding_completed_at: string | null;
   };
   workspace: {
     id: string;
@@ -216,6 +217,7 @@ export async function signupWithPassword(params: {
       id: userId,
       email,
       display_name: displayName,
+      onboarding_completed_at: null,
     },
     workspace: {
       id: workspaceId,
@@ -245,10 +247,11 @@ export async function loginWithPassword(params: {
     id: string;
     email: string;
     display_name: string | null;
+    onboarding_completed_at: string | null;
     password_hash: string;
     status: "active" | "disabled";
   }>(
-    `select id, email, display_name, password_hash, status
+    `select id, email, display_name, onboarding_completed_at, password_hash, status
      from auth_users
      where email = $1
      limit 1`,
@@ -286,6 +289,7 @@ export async function loginWithPassword(params: {
         id: user.id,
         email: user.email,
         display_name: user.display_name,
+        onboarding_completed_at: user.onboarding_completed_at,
       },
       workspace: workspace,
       session: {
@@ -306,6 +310,7 @@ export async function getAuthContextFromSessionToken(sessionToken: string | null
     user_id: string;
     email: string;
     display_name: string | null;
+    onboarding_completed_at: string | null;
     workspace_id: string;
     workspace_name: string;
     workspace_slug: string;
@@ -317,6 +322,7 @@ export async function getAuthContextFromSessionToken(sessionToken: string | null
        u.id as user_id,
        u.email,
        u.display_name,
+       u.onboarding_completed_at,
        w.id as workspace_id,
        w.name as workspace_name,
        w.slug as workspace_slug,
@@ -345,6 +351,7 @@ export async function getAuthContextFromSessionToken(sessionToken: string | null
       id: row.user_id,
       email: row.email,
       display_name: row.display_name,
+      onboarding_completed_at: row.onboarding_completed_at,
     },
     workspace: {
       id: row.workspace_id,
@@ -380,6 +387,17 @@ export async function revokeSessionByToken(sessionToken: string | null | undefin
 export async function revokeSessionByRequest(request: NextRequest): Promise<void> {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   await revokeSessionByToken(token);
+}
+
+export async function markAuthOnboardingCompleted(auth: AuthContext): Promise<void> {
+  const now = nowIso();
+  await dbQuery(
+    `update auth_users
+     set onboarding_completed_at = coalesce(onboarding_completed_at, $2),
+         updated_at = $2
+     where id = $1`,
+    [auth.user.id, now],
+  );
 }
 
 function normalizeConfirmInput(input: string): string {

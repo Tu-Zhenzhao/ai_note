@@ -10,6 +10,7 @@ function buildTestAuthContext(request: NextRequest): AuthContext {
       id: userId,
       email: `${userId}@example.test`,
       display_name: "Test User",
+      onboarding_completed_at: null,
     },
     workspace: {
       id: workspaceId,

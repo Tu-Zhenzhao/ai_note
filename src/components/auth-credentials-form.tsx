@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type Mode = "login" | "register";
@@ -87,6 +88,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
   const [error, setError] = useState<string | null>(null);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
+  const [isUiReady, setIsUiReady] = useState(false);
   const [pose, setPose] = useState<AvatarPose>(DEFAULT_POSE);
 
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -309,6 +311,16 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
   }, [isPasswordFocused]);
 
   useEffect(() => {
+    const readyTimer = window.requestAnimationFrame(() => {
+      setIsUiReady(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(readyTimer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (isPasswordFocused) {
       return;
     }
@@ -367,7 +379,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
   const blinkTransition = "transform 0.12s ease-out";
 
   return (
-    <div className="v2-auth-page">
+    <div className={`v2-auth-page ${isUiReady ? "is-ui-ready" : ""}`}>
       <div className="v2-auth-container">
         <div ref={viewerRef} className="v2-dog-viewer" aria-hidden="true">
           <div className="v2-dog-inner">
@@ -690,14 +702,14 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
 
         <form onSubmit={onSubmit} className="v2-auth-card">
           <div className="v2-auth-header">
-            <h1>{isRegister ? "Create Account" : "Welcome Back"}</h1>
+            <h1>{isRegister ? "开问吧" : "来啦？多问AI准备好了"}</h1>
             <p className="v2-auth-tagline">好的答案，来自被理解的过程</p>
           </div>
 
           {isRegister && (
             <>
               <div className="v2-auth-field">
-                <label>Display Name</label>
+                <label>称呼 / Name</label>
                 <input
                   type="text"
                   value={displayName}
@@ -707,13 +719,13 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
                   onKeyUp={schedulePoseUpdate}
                   onSelect={schedulePoseUpdate}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="How should we address you?"
+                  placeholder="怎么称呼你？ / How should we address you?"
                   required
                 />
               </div>
 
               <div className="v2-auth-field">
-                <label>Invite Code / 邀请码</label>
+                <label>邀请码 / Invite Code</label>
                 <input
                   type="text"
                   value={inviteCode}
@@ -723,7 +735,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
                   onKeyUp={schedulePoseUpdate}
                   onSelect={schedulePoseUpdate}
                   onChange={(event) => setInviteCode(event.target.value)}
-                  placeholder="Enter beta invite code"
+                  placeholder="请输入邀请码 / Enter beta invite code"
                   required
                 />
               </div>
@@ -731,7 +743,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           )}
 
           <div className="v2-auth-field">
-            <label>Email</label>
+            <label>邮箱 / Email</label>
             <input
               type="email"
               value={email}
@@ -741,13 +753,13 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
               onKeyUp={schedulePoseUpdate}
               onSelect={schedulePoseUpdate}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@company.com"
+              placeholder="请输入邮箱 / you@company.com"
               required
             />
           </div>
 
           <div className="v2-auth-field">
-            <label>Password</label>
+            <label>密码 / Password</label>
             <div className="v2-input-wrapper">
               <input
                 type={showPassword ? "text" : "password"}
@@ -765,7 +777,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
                   }
                 }}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="At least 8 characters"
+                placeholder="至少 8 位密码 / At least 8 characters"
                 required
               />
               <button
@@ -773,7 +785,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
                 className="v2-pwd-toggle"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setShowPassword((current) => !current)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? "隐藏密码 / Hide password" : "显示密码 / Show password"}
               >
                 {showPassword ? "🙈" : "👁"}
               </button>
@@ -783,18 +795,18 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           {error && <div className="v2-auth-error">{error}</div>}
 
           <button type="submit" className="v2-auth-submit" disabled={submitting}>
-            {submitting ? "Processing..." : isRegister ? "Create Account" : "Login"}
+            {submitting ? "处理中... / Processing..." : isRegister ? "开问 / Create Account" : "登录 / Login"}
           </button>
 
           <div className="v2-auth-footer">
             {isRegister ? (
-              <a href="/login">
-                Already have an account? <span>Login</span>
-              </a>
+              <Link href="/login">
+                已有账号？<span>去登录 / Login</span>
+              </Link>
             ) : (
-              <a href="/register">
-                Need an account? <span>Register</span>
-              </a>
+              <Link href="/register">
+                还没有账号？<span>去注册 / Register</span>
+              </Link>
             )}
           </div>
         </form>
@@ -908,6 +920,22 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           transform: rotate(30deg) translate(-9px, -2px);
         }
 
+        .v2-auth-page:not(.is-ui-ready) .v2-armL,
+        .v2-auth-page:not(.is-ui-ready) .v2-armR,
+        .v2-auth-page:not(.is-ui-ready) .v2-twoFingers,
+        .v2-auth-page:not(.is-ui-ready) .face,
+        .v2-auth-page:not(.is-ui-ready) .eyebrow,
+        .v2-auth-page:not(.is-ui-ready) .hair,
+        .v2-auth-page:not(.is-ui-ready) .chin,
+        .v2-auth-page:not(.is-ui-ready) .nose,
+        .v2-auth-page:not(.is-ui-ready) .mouth,
+        .v2-auth-page:not(.is-ui-ready) .eyeL,
+        .v2-auth-page:not(.is-ui-ready) .eyeR,
+        .v2-auth-page:not(.is-ui-ready) .outerEar,
+        .v2-auth-page:not(.is-ui-ready) .earHair {
+          transition: none !important;
+        }
+
         .v2-auth-card {
           background: #ffffff;
           border: 1px solid #e5e2da;
@@ -947,8 +975,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           font-weight: 700;
           color: #2d2b29;
           margin-bottom: 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.02em;
         }
 
         .v2-auth-field input {
