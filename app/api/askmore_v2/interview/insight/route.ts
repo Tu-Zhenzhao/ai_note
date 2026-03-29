@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
 import { createAiThinking, listAiThinkingRuns, startAiThinkingJob } from "@/server/askmore_v2/insight/service";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const postSchema = z.object({
   session_id: z.string().uuid(),
@@ -24,11 +25,14 @@ const getQuerySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const payload = postSchema.parse(await request.json());
     await ensureAskmoreV2PostgresReady();
     if (payload.async_mode) {
       const job = await startAiThinkingJob({
         sessionId: payload.session_id,
+        workspaceId: auth.workspace.id,
         language: payload.language,
         trigger: "manual",
         forceRegenerate: payload.force_regenerate,
@@ -38,6 +42,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await createAiThinking({
       sessionId: payload.session_id,
+      workspaceId: auth.workspace.id,
       language: payload.language,
       trigger: "manual",
       forceRegenerate: payload.force_regenerate,
@@ -59,6 +64,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const url = new URL(request.url);
     const query = getQuerySchema.parse({
       session_id: url.searchParams.get("session_id"),
@@ -67,6 +74,7 @@ export async function GET(request: NextRequest) {
     await ensureAskmoreV2PostgresReady();
     const result = await listAiThinkingRuns({
       sessionId: query.session_id,
+      workspaceId: auth.workspace.id,
       limit: query.limit,
     });
     return NextResponse.json(result);

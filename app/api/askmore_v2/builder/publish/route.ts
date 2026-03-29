@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
 import { publishFlowVersion } from "@/server/askmore_v2/services/builder-service";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const cardSchema = z.object({
   question_id: z.string().min(1),
@@ -45,9 +46,14 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const payload = bodySchema.parse(await request.json());
     await ensureAskmoreV2PostgresReady();
-    const result = await publishFlowVersion(payload);
+    const result = await publishFlowVersion({
+      ...payload,
+      workspace_id: auth.workspace.id,
+    });
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof z.ZodError) {

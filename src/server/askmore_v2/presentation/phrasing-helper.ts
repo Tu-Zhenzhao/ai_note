@@ -7,6 +7,7 @@ import {
 } from "@/server/askmore_v2/prompts";
 import { AskmoreV2RoutedIntent, AskmoreV2VisibleEvent } from "@/server/askmore_v2/types";
 import { PresentationDraftEvent } from "@/server/askmore_v2/presentation/event-selection";
+import { buildCompletionClosureText } from "@/server/askmore_v2/completion-closure";
 import { AskmoreV2ToneProfile, toneInstruction } from "@/server/askmore_v2/presentation/tone-profiles";
 import {
   AskmoreV2ReasoningProfile,
@@ -196,6 +197,20 @@ function toFallbackText(params: {
     return hint || "Let me confirm one quick point so we stay aligned.";
   }
   if (params.event.event_type === "transition") {
+    if (params.event.semantic_hints?.is_completion_closure) {
+      const caseSummary = params.event.semantic_hints.completion_case_summary?.trim()
+        || hint
+        || (
+          params.language === "zh"
+            ? "根据你的描述，我们已经把这次访谈最关键的信息收齐了。"
+            : "Based on your responses, we have captured the key information for this interview."
+        );
+      return buildCompletionClosureText({
+        language: params.language,
+        domain: params.event.semantic_hints.completion_domain ?? "general",
+        caseSummary,
+      });
+    }
     if (params.language === "zh") {
       if (reasoningGlimpse) return `好的，我们继续。${reasoningGlimpse}`;
       return hint || "好的，我们继续往下，把最后这个关键点确认掉。";
@@ -220,6 +235,7 @@ function isValidGeneratedText(params: {
   eventType: PresentationDraftEvent["event_type"];
   mode?: PresentationDraftEvent["mode"];
   language: "zh" | "en";
+  skipFirstPersonCheck?: boolean;
 }): boolean {
   const normalized = normalizeOutput(params.text);
   if (!normalized) return false;
@@ -230,10 +246,18 @@ function isValidGeneratedText(params: {
   if (params.mode === "follow_up_select" && /(确认一下|快速确认|quick confirm|small confirmation|align meaning)/i.test(normalized)) {
     return false;
   }
-  if (params.eventType !== "next_step" && params.eventType !== "help_examples" && !hasFirstPerson(normalized, params.language)) {
+  if (!params.skipFirstPersonCheck
+    && params.eventType !== "next_step"
+    && params.eventType !== "help_examples"
+    && !hasFirstPerson(normalized, params.language)
+  ) {
     return false;
   }
   return true;
+}
+
+function isCompletionClosureEvent(event: PresentationDraftEvent): boolean {
+  return event.event_type === "transition" && Boolean(event.semantic_hints?.is_completion_closure);
 }
 
 export async function phrasePresentationEvents(params: {
@@ -251,6 +275,7 @@ export async function phrasePresentationEvents(params: {
   const textualDrafts = params.drafts
     .map((event, index) => ({ event, index }))
     .filter(({ event }) => event.event_type !== "help_examples");
+  const modelDrafts = textualDrafts.filter(({ event }) => !isCompletionClosureEvent(event));
 
   const fallbackByIndex = new Map<number, string>();
   for (const { event, index } of textualDrafts) {
@@ -258,9 +283,9 @@ export async function phrasePresentationEvents(params: {
   }
 
   const composedTexts = new Map<number, string>(fallbackByIndex);
-  if (textualDrafts.length > 0) {
+  if (modelDrafts.length > 0) {
     try {
-      const modelInput = textualDrafts.map(({ event, index }) => ({
+      const modelInput = modelDrafts.map(({ event, index }) => ({
         index,
         type: event.event_type,
         content_hint: event.content_hint ?? "",
@@ -306,7 +331,7 @@ export async function phrasePresentationEvents(params: {
       });
       for (const block of result.blocks) {
         if (!fallbackByIndex.has(block.index)) continue;
-        const targetEvent = textualDrafts.find(({ index }) => index === block.index)?.event;
+        const targetEvent = modelDrafts.find(({ index }) => index === block.index)?.event;
         if (!targetEvent) continue;
         const normalized = normalizeOutput(block.text);
         if (!isValidGeneratedText({
@@ -314,6 +339,7 @@ export async function phrasePresentationEvents(params: {
           eventType: targetEvent.event_type,
           mode: targetEvent.mode,
           language: params.language,
+          skipFirstPersonCheck: isCompletionClosureEvent(targetEvent),
         })) continue;
         composedTexts.set(block.index, normalized);
       }

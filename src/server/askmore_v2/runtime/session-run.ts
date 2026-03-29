@@ -28,6 +28,7 @@ import {
 
 interface SessionRunInput {
   sessionId: string;
+  workspaceId?: string;
   userMessage: string;
   language: AskmoreV2Language;
   clientTurnId: string;
@@ -235,7 +236,7 @@ export class SessionRun {
       }
       this.emitPhase("assemble_context", "start");
 
-      const session = await repo.getSession(this.input.sessionId);
+      const session = await repo.getSession(this.input.sessionId, this.input.workspaceId);
       if (!session) {
         throw new Error("Session not found");
       }
@@ -247,7 +248,7 @@ export class SessionRun {
         activeQuestionId: session.state_jsonb.session.current_question_id,
       });
 
-      const flow = await repo.getFlowVersion(session.flow_version_id);
+      const flow = await repo.getFlowVersion(session.flow_version_id, this.input.workspaceId);
       if (!flow) {
         throw new Error("Flow version not found");
       }
@@ -385,6 +386,7 @@ export class SessionRun {
         language: this.input.language,
         scenario: canonicalFlow.scenario,
         targetOutputType: canonicalFlow.target_output_type,
+        transitionReason: task.transition_reason ?? null,
         latestUserTurn: this.input.userMessage,
       });
       const responseBlocks = eventsToResponseBlocks(visibleEvents);
@@ -489,8 +491,9 @@ export class SessionRun {
         await tryAutoGenerateInsightOnCompletion({
           sessionId: this.input.sessionId,
           language: this.input.language,
+          workspaceId: this.input.workspaceId,
         });
-        const refreshed = await repo.getSession(this.input.sessionId);
+        const refreshed = await repo.getSession(this.input.sessionId, this.input.workspaceId);
         if (refreshed) {
           result.state = refreshed.state_jsonb;
           session.state_jsonb = refreshed.state_jsonb;

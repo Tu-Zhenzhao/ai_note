@@ -172,6 +172,7 @@ export type AskmoreV2FlowDefinition = AskmoreV2FlowDefinitionV2 | AskmoreV2Legac
 export interface AskmoreV2FlowVersion {
   id: string;
   version: number;
+  workspace_id?: string;
   status: AskmoreV2FlowStatus;
   flow_jsonb: AskmoreV2FlowDefinition;
   published_at: string | null;
@@ -260,6 +261,8 @@ export interface AskmoreV2HelpCoachingOutput {
 export interface AskmoreV2Session {
   id: string;
   flow_version_id: string;
+  workspace_id?: string;
+  created_by_user_id?: string | null;
   status: AskmoreV2SessionStatus;
   turn_count: number;
   state_version: number;
@@ -270,6 +273,7 @@ export interface AskmoreV2Session {
 
 export interface AskmoreV2SessionListItem {
   id: string;
+  workspace_id?: string;
   status: AskmoreV2SessionStatus;
   turn_count: number;
   state_version?: number;
@@ -334,6 +338,10 @@ export interface AskmoreV2InsightQualityFlags {
   has_observation_anchor?: boolean;
   has_open_question_or_hypothesis?: boolean;
   too_template_like?: boolean;
+  near_duplicate_with_draft1?: boolean;
+  has_reassurance_in_professional_read?: boolean;
+  has_reassurance_in_attention_points?: boolean;
+  has_reassurance_in_practical_guidance?: boolean;
 }
 
 export interface AskmoreV2AiThinkingResult {

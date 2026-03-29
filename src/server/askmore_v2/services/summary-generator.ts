@@ -6,6 +6,11 @@ import {
   AskmoreV2Session,
   AskmoreV2SummaryOutput,
 } from "@/server/askmore_v2/types";
+import {
+  buildCompletionCaseSummary,
+  buildCompletionClosureText,
+  detectCompletionDomain,
+} from "@/server/askmore_v2/completion-closure";
 
 const schema = z.object({
   summary_text: z.string().min(1),
@@ -21,18 +26,26 @@ function appendFinalCompletionNotice(params: {
   language: AskmoreV2Language;
   mode: "progressive" | "final";
   summaryText: string;
+  session: AskmoreV2Session;
+  messages: Array<{ role: string; message_text: string }>;
 }): string {
   const base = params.summaryText.trim();
   if (params.mode !== "final") return base;
-  if (params.language === "zh") {
-    const notice = "本次访谈已结束。你可以先查看右侧问题进度；如果还想补充关键点，可以开启新一轮访谈继续补充。";
-    if (base.includes("本次访谈已结束")) return base;
-    return `${base}\n\n${notice}`;
-  }
-  const notice =
-    "This interview is now complete. You can review progress on the right, and start a new interview if you want to add more details.";
-  if (base.includes("interview is now complete")) return base;
-  return `${base}\n\n${notice}`;
+  const domain = detectCompletionDomain({
+    summaryText: base,
+    messages: params.messages,
+    state: params.session.state_jsonb,
+  });
+  const caseSummary = buildCompletionCaseSummary({
+    language: params.language,
+    summaryText: base,
+    state: params.session.state_jsonb,
+  });
+  return buildCompletionClosureText({
+    language: params.language,
+    domain,
+    caseSummary,
+  });
 }
 
 function buildFallbackSummary(params: {
@@ -113,6 +126,8 @@ export async function generateInterviewSummary(params: {
         language: params.language,
         mode: params.mode,
         summaryText: generated.summary_text,
+        session: params.session,
+        messages: params.messages,
       }),
     };
   } catch {
@@ -126,6 +141,8 @@ export async function generateInterviewSummary(params: {
         language: params.language,
         mode: params.mode,
         summaryText: fallback.summary_text,
+        session: params.session,
+        messages: params.messages,
       }),
     };
   }

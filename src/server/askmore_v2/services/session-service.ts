@@ -21,6 +21,24 @@ export async function listAskmoreV2Sessions(limit = 100): Promise<AskmoreV2Sessi
   }));
 }
 
+export async function listAskmoreV2SessionsInWorkspace(
+  workspaceId: string,
+  limit = 100,
+): Promise<AskmoreV2SessionListItem[]> {
+  const repo = getAskmoreV2Repository();
+  const sessions = await repo.listSessions(limit, workspaceId);
+  return sessions.map((session) => ({
+    id: session.id,
+    workspace_id: session.workspace_id,
+    status: session.status,
+    turn_count: session.turn_count,
+    flow_version_id: session.flow_version_id,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    current_question_id: session.state_jsonb?.session?.current_question_id ?? null,
+  }));
+}
+
 export async function getAskmoreV2SessionDetail(sessionId: string): Promise<{
   session: AskmoreV2Session | null;
   messages: AskmoreV2Message[];
@@ -51,7 +69,48 @@ export async function getAskmoreV2SessionDetail(sessionId: string): Promise<{
   };
 }
 
+export async function getAskmoreV2SessionDetailInWorkspace(params: {
+  sessionId: string;
+  workspaceId: string;
+}): Promise<{
+  session: AskmoreV2Session | null;
+  messages: AskmoreV2Message[];
+  flow_questions: AskmoreV2FlowQuestion[] | null;
+}> {
+  const repo = getAskmoreV2Repository();
+  const session = await repo.getSession(params.sessionId, params.workspaceId);
+  if (!session) {
+    return {
+      session: null,
+      messages: [],
+      flow_questions: null,
+    };
+  }
+
+  const [messages, flowVersion] = await Promise.all([
+    repo.listMessages(params.sessionId),
+    repo.getFlowVersion(session.flow_version_id, params.workspaceId),
+  ]);
+  const flow_questions = flowVersion
+    ? toCanonicalFlowDefinition(flowVersion.flow_jsonb).final_flow_questions
+    : null;
+
+  return {
+    session,
+    messages,
+    flow_questions,
+  };
+}
+
 export async function deleteAskmoreV2Session(sessionId: string): Promise<boolean> {
   const repo = getAskmoreV2Repository();
   return repo.deleteSession(sessionId);
+}
+
+export async function deleteAskmoreV2SessionInWorkspace(params: {
+  sessionId: string;
+  workspaceId: string;
+}): Promise<boolean> {
+  const repo = getAskmoreV2Repository();
+  return repo.deleteSession(params.sessionId, params.workspaceId);
 }

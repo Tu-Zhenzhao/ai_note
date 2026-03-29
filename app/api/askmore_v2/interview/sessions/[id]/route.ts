@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
-import { getAskmoreV2SessionDetail } from "@/server/askmore_v2/services/session-service";
+import { getAskmoreV2SessionDetailInWorkspace } from "@/server/askmore_v2/services/session-service";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -12,9 +13,14 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(_request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const params = paramsSchema.parse(await context.params);
     await ensureAskmoreV2PostgresReady();
-    const detail = await getAskmoreV2SessionDetail(params.id);
+    const detail = await getAskmoreV2SessionDetailInWorkspace({
+      sessionId: params.id,
+      workspaceId: auth.workspace.id,
+    });
     if (!detail.session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

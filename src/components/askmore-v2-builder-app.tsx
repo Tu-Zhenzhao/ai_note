@@ -78,6 +78,17 @@ type ActiveFlowPayload = {
   error?: string;
 };
 
+type AuthMePayload = {
+  authenticated: boolean;
+  auth?: {
+    user: {
+      email: string;
+      display_name: string | null;
+    };
+  };
+  error?: string;
+};
+
 function difficultyColor(difficulty: "low" | "medium" | "high") {
   if (difficulty === "high") return { bg: "#FEE2E2", text: "#991B1B" };
   if (difficulty === "medium") return { bg: "#FEF3C7", text: "#92400E" };
@@ -211,6 +222,14 @@ export function AskmoreV2BuilderApp() {
 
   const [loadingReview, setLoadingReview] = useState(false);
   const [loadingPublish, setLoadingPublish] = useState(false);
+  const [showPublishSuccess, setShowPublishSuccess] = useState(false);
+  const [publishVersion, setPublishVersion] = useState<number | null>(null);
+  const [interviewHintActive, setInterviewHintActive] = useState(false);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountDisplayName, setAccountDisplayName] = useState("");
+  const [deletePanelOpen, setDeletePanelOpen] = useState(false);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [loadingActive, setLoadingActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -253,8 +272,21 @@ export function AskmoreV2BuilderApp() {
     }
   }
 
+  async function loadAuthMe() {
+    try {
+      const response = await fetch("/api/auth/me");
+      const payload = (await response.json()) as AuthMePayload;
+      if (!response.ok || !payload.authenticated || !payload.auth) return;
+      setAccountEmail(payload.auth.user.email || "");
+      setAccountDisplayName(payload.auth.user.display_name || "");
+    } catch {
+      // ignore me fetch failures in builder view
+    }
+  }
+
   useEffect(() => {
     void loadActiveFlow();
+    void loadAuthMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -394,12 +426,49 @@ export function AskmoreV2BuilderApp() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Publish failed");
       }
+      setPublishVersion(payload.version ?? null);
+      setShowPublishSuccess(true);
+      setInterviewHintActive(true);
       setNotice(`发布成功：v${payload.version ?? "?"}`);
       await loadActiveFlow();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed");
     } finally {
       setLoadingPublish(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
+  async function deleteAccount() {
+    const text = deleteConfirmInput.trim();
+    if (!text) {
+      setError("请输入邮箱或账户名以确认注销。");
+      return;
+    }
+    setError(null);
+    setDeletingAccount(true);
+    try {
+      const response = await fetch("/api/auth/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm_input: text }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Delete account failed");
+      }
+      window.location.href = "/register";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete account failed");
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -412,35 +481,54 @@ export function AskmoreV2BuilderApp() {
               width: 30,
               height: 30,
               borderRadius: "50%",
-              background: "var(--color-accent)",
+              background: "var(--color-accent-soft)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#fff",
+              color: "var(--color-accent)",
               fontWeight: 700,
-              fontSize: 13,
+              fontSize: 16,
             }}
           >
-            v2
+            🎙️
           </div>
           <div style={{ fontWeight: 700, color: "var(--color-text)", fontSize: 16 }}>
-            AskMore v0.2 · Question Builder
+            AskMore v0.3 · Question Builder
           </div>
-          <a
-            href="/askmore_v2/interview"
-            style={{
-              marginLeft: "auto",
-              textDecoration: "none",
-              borderRadius: 999,
-              padding: "6px 14px",
-              background: "var(--color-chip)",
-              color: "var(--color-text)",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            进入 Interview
-          </a>
+          <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <a
+              href="/askmore_v2/interview"
+              className={interviewHintActive ? "v2-btn-breathing-accent" : ""}
+              onClick={() => setInterviewHintActive(false)}
+              style={{
+                textDecoration: "none",
+                borderRadius: 999,
+                padding: "6px 18px",
+                background: interviewHintActive ? "var(--color-accent)" : "var(--color-chip)",
+                color: interviewHintActive ? "#fff" : "var(--color-text)",
+                fontSize: 12,
+                fontWeight: 700,
+                transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                boxShadow: interviewHintActive ? "0 0 24px rgba(13, 123, 100, 0.4)" : "none",
+              }}
+            >
+              进入 Interview
+            </a>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              style={{
+                borderRadius: 999,
+                padding: "6px 14px",
+                background: "var(--color-chip)",
+                color: "var(--color-text)",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              退出
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -458,6 +546,93 @@ export function AskmoreV2BuilderApp() {
             {error}
           </div>
         )}
+
+        <div
+          style={{
+            background: "var(--color-elev)",
+            borderRadius: "var(--radius-l)",
+            boxShadow: "var(--shadow-1)",
+            border: "1px solid var(--color-line)",
+            padding: 14,
+            marginBottom: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12, color: "var(--color-muted)" }}>测试账号</span>
+            <strong style={{ fontSize: 12, color: "var(--color-text)" }}>
+              {accountDisplayName || accountEmail || "-"}
+            </strong>
+            {accountEmail && (
+              <span style={{ fontSize: 11, color: "var(--color-muted)" }}>{accountEmail}</span>
+            )}
+            <button
+              type="button"
+              onClick={() => setDeletePanelOpen((prev) => !prev)}
+              style={{
+                marginLeft: "auto",
+                borderRadius: 999,
+                padding: "6px 12px",
+                background: deletePanelOpen ? "#FEE2E2" : "var(--color-chip)",
+                color: deletePanelOpen ? "#991B1B" : "var(--color-text)",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              {deletePanelOpen ? "取消注销" : "注销账户"}
+            </button>
+          </div>
+          {deletePanelOpen && (
+            <div
+              style={{
+                borderRadius: 10,
+                border: "1px solid #FCA5A5",
+                background: "#FEF2F2",
+                padding: 12,
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <div style={{ gridColumn: "1 / -1", fontSize: 12, color: "#7F1D1D", lineHeight: 1.6 }}>
+                注销后会删除该测试账号及其工作区下的问卷/访谈/AI 思考数据。请输入“邮箱或账户名”确认。
+              </div>
+              <input
+                type="text"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                placeholder="输入邮箱或账户名确认"
+                style={{
+                  border: "1px solid #FCA5A5",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  width: "100%",
+                  background: "#fff",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void deleteAccount()}
+                disabled={deletingAccount}
+                style={{
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: "#B91C1C",
+                  color: "#fff",
+                  opacity: deletingAccount ? 0.7 : 1,
+                }}
+              >
+                {deletingAccount ? "注销中..." : "确认注销"}
+              </button>
+            </div>
+          )}
+        </div>
 
         <div
           style={{
@@ -739,6 +914,7 @@ export function AskmoreV2BuilderApp() {
                 type="button"
                 onClick={publishFlow}
                 disabled={loadingPublish || cards.length === 0}
+                className={cards.length > 0 && !loadingPublish && !showPublishSuccess ? "v2-btn-breathing" : ""}
                 style={{
                   marginLeft: "auto",
                   background: "var(--color-cta)",
@@ -747,6 +923,7 @@ export function AskmoreV2BuilderApp() {
                   padding: "7px 12px",
                   fontSize: 12,
                   fontWeight: 700,
+                  transition: "all 0.3s ease",
                 }}
               >
                 {loadingPublish ? "发布中..." : "Publish Flow"}
@@ -1030,7 +1207,177 @@ export function AskmoreV2BuilderApp() {
           </div>
         )}
       </div>
+
+      {loadingPublish && (
+        <div className="v2-overlay">
+          <div className="v2-busy-card">
+            <span className="v2-busy-spinner" />
+            <div className="v2-busy-title">正在发布流程...</div>
+            <div className="v2-busy-hint">请稍候，我们正在将您的修改同步到正式访谈环境中。</div>
+          </div>
+        </div>
+      )}
+
+      {showPublishSuccess && (
+        <div className="v2-overlay">
+          <div className="v2-success-card">
+            <div className="v2-fireworks-wrap">
+              <div className="v2-firework" style={{ "--delay": "0s", "--left": "20%", "--top": "30%" } as React.CSSProperties} />
+              <div className="v2-firework" style={{ "--delay": "0.4s", "--left": "80%", "--top": "20%" } as React.CSSProperties} />
+              <div className="v2-firework" style={{ "--delay": "0.8s", "--left": "50%", "--top": "50%" } as React.CSSProperties} />
+              <div className="v2-firework" style={{ "--delay": "1.2s", "--left": "30%", "--top": "70%" } as React.CSSProperties} />
+              <div className="v2-firework" style={{ "--delay": "1.6s", "--left": "70%", "--top": "60%" } as React.CSSProperties} />
+              <div className="v2-firework" style={{ "--delay": "2.0s", "--left": "15%", "--top": "45%" } as React.CSSProperties} />
+            </div>
+            <div className="v2-success-icon">✨</div>
+            <div className="v2-success-title">发布成功！</div>
+            <div className="v2-success-version">当前版本：v{publishVersion}</div>
+            <div className="v2-success-hint">
+              新流程已生效。点击右上角的 “进入 Interview” 按钮即可查看您的最新修改。
+            </div>
+            <button
+              className="v2-success-btn v2-btn-breathing-accent"
+              onClick={() => setShowPublishSuccess(false)}
+            >
+              我知道了
+            </button>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
+        .v2-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 100;
+          background: rgba(45, 43, 41, 0.45);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          animation: v2-fade-in 0.3s ease;
+        }
+        @keyframes v2-fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .v2-busy-card, .v2-success-card {
+          min-width: 320px;
+          max-width: 420px;
+          background: #fff;
+          border-radius: 24px;
+          padding: 32px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+        }
+        .v2-busy-spinner {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: 3px solid rgba(13, 123, 100, 0.1);
+          border-top-color: var(--color-accent);
+          animation: v2-spin 1s linear infinite;
+        }
+        @keyframes v2-spin {
+          to { transform: rotate(360deg); }
+        }
+        .v2-busy-title, .v2-success-title {
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--color-text);
+        }
+        .v2-busy-hint, .v2-success-hint {
+          font-size: 13px;
+          color: var(--color-muted);
+          line-height: 1.6;
+        }
+        .v2-success-icon {
+          font-size: 48px;
+          line-height: 1;
+        }
+        .v2-success-version {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--color-accent);
+          background: var(--color-accent-soft);
+          padding: 4px 12px;
+          border-radius: 999px;
+        }
+        .v2-success-btn {
+          margin-top: 8px;
+          background: var(--color-accent);
+          color: #fff;
+          border-radius: 999px;
+          padding: 10px 24px;
+          font-weight: 700;
+          font-size: 14px;
+          border: none;
+          cursor: pointer;
+        }
+
+        /* Elegant Golden Sparkle Fireworks */
+        .v2-fireworks-wrap {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+        }
+        .v2-firework {
+          position: absolute;
+          left: var(--left, 50%);
+          top: var(--top, 50%);
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          opacity: 0;
+          box-shadow: 
+            0 0 #d4a017, 0 0 #fde68a, 
+            0 0 #fff, 0 0 #facc15, 
+            0 0 #eab308, 0 0 #fef3c7;
+          animation: v2-firework-burst 2.8s 1 ease-out forwards;
+          animation-delay: var(--delay, 0s);
+        }
+        @keyframes v2-firework-burst {
+          0% { transform: scale(0.1); opacity: 0; }
+          5% { opacity: 1; }
+          40% { opacity: 1; }
+          100% { 
+            transform: scale(45); opacity: 0; 
+            box-shadow: 
+              -15px -20px #d4a017, 20px -15px #fde68a, 12px 20px #fff, 
+              -20px 12px #facc15, 8px -25px #eab308, -12px -22px #fef3c7,
+              18px 18px #d4a017, -25px -5px #fde68a, 5px 28px #fff;
+          }
+        }
+
+        /* High-Visibility Breathing Effects */
+        .v2-btn-breathing {
+          animation: v2-breath 2s infinite ease-in-out;
+        }
+        .v2-btn-breathing-accent {
+          animation: v2-breath-accent 2s infinite ease-in-out;
+        }
+        @keyframes v2-breath {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(45, 43, 41, 0.4); transform: scale(1); }
+          50% { box-shadow: 0 0 0 8px rgba(45, 43, 41, 0); transform: scale(1.03); }
+        }
+        @keyframes v2-breath-accent {
+          0%, 100% { 
+            box-shadow: 0 0 0 0 rgba(13, 123, 100, 0.6), 0 0 15px rgba(13, 123, 100, 0.3); 
+            transform: scale(1); 
+          }
+          50% { 
+            box-shadow: 0 0 0 15px rgba(13, 123, 100, 0), 0 0 30px rgba(13, 123, 100, 0.5); 
+            transform: scale(1.06); 
+          }
+        }
+
         .v2-help-tooltip-wrap {
           position: relative;
           display: inline-flex;

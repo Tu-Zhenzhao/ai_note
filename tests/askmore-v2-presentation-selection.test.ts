@@ -79,7 +79,7 @@ function makeDebugEvents(): AskmoreV2InternalEvent[] {
 }
 
 describe("askmore v2 presentation selection", () => {
-  test("finalized turn suppresses gap prompt and next step", () => {
+  test("finalized turn suppresses gap prompt, why block and next step, and marks completion closure", () => {
     const drafts = selectPresentationDraftEvents({
       debugEvents: makeDebugEvents(),
       routedIntent: {
@@ -92,7 +92,12 @@ describe("askmore v2 presentation selection", () => {
 
     expect(drafts.some((item) => item.event_type === "gentle_gap_prompt")).toBe(false);
     expect(drafts.some((item) => item.event_type === "next_step")).toBe(false);
+    expect(drafts.some((item) => item.event_type === "why_this_matters")).toBe(false);
     expect(drafts.some((item) => item.event_type === "transition")).toBe(true);
+    const transition = drafts.find((item) => item.event_type === "transition");
+    expect(transition?.semantic_hints?.is_completion_closure).toBe(true);
+    expect(transition?.semantic_hints?.reasoning_glimpse).toBeUndefined();
+    expect((transition?.semantic_hints?.completion_case_summary ?? "").length).toBeGreaterThan(0);
   });
 
   test("non-finalized turn can include gap prompt and next step", () => {
@@ -117,5 +122,27 @@ describe("askmore v2 presentation selection", () => {
     expect(nextStep?.mode).toBe("follow_up_select");
     expect(nextStep?.badge_label).toBe("普通追问");
     expect((nextStep?.options ?? []).length).toBeGreaterThan(0);
+  });
+
+  test("transition reason can force completion lock even when state.finalized is false", () => {
+    const debugEvents = makeDebugEvents().map((event) =>
+      event.event_type === "transition_summary"
+        ? { ...event, payload: { content: "我们先把这一题做个收束。" } }
+        : event,
+    );
+    const drafts = selectPresentationDraftEvents({
+      debugEvents,
+      routedIntent: {
+        intent: "answer_question",
+        confidence: 0.88,
+      },
+      state: makeState(false),
+      language: "zh",
+      transitionReason: "all_questions_completed",
+    });
+
+    expect(drafts.some((item) => item.event_type === "next_step")).toBe(false);
+    const transition = drafts.find((item) => item.event_type === "transition");
+    expect(transition?.semantic_hints?.is_completion_closure).toBe(true);
   });
 });

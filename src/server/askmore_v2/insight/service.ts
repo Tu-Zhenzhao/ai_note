@@ -45,6 +45,7 @@ interface AiThinkingJobProgress {
 interface AiThinkingJobState {
   job_id: string;
   session_id: string;
+  workspace_id?: string;
   trigger: AskmoreV2InsightTrigger;
   status: AiThinkingJobStatus;
   created_at: string;
@@ -139,7 +140,7 @@ function updateJobProgress(params: {
   aiThinkingJobsById.set(params.jobId, job);
 }
 
-async function updateSessionWithRetry(session: AskmoreV2Session): Promise<AskmoreV2Session> {
+async function updateSessionWithRetry(session: AskmoreV2Session, workspaceId?: string): Promise<AskmoreV2Session> {
   const repo = getAskmoreV2Repository();
   try {
     await repo.updateSession(session);
@@ -148,7 +149,7 @@ async function updateSessionWithRetry(session: AskmoreV2Session): Promise<Askmor
     if (!(error instanceof Error) || !error.message.includes("ASKMORE_V2_STATE_VERSION_CONFLICT")) {
       throw error;
     }
-    const fresh = await repo.getSession(session.id);
+    const fresh = await repo.getSession(session.id, workspaceId);
     if (!fresh) throw new Error("Session not found during AI Thinking update retry");
     const merged: AskmoreV2Session = {
       ...fresh,
@@ -166,6 +167,7 @@ async function updateSessionWithRetry(session: AskmoreV2Session): Promise<Askmor
 
 export async function createAiThinking(params: {
   sessionId: string;
+  workspaceId?: string;
   language?: AskmoreV2Language;
   trigger: AskmoreV2InsightTrigger;
   forceRegenerate?: boolean;
@@ -198,6 +200,7 @@ export async function createAiThinking(params: {
 
 export async function startAiThinkingJob(params: {
   sessionId: string;
+  workspaceId?: string;
   language?: AskmoreV2Language;
   trigger: AskmoreV2InsightTrigger;
   forceRegenerate?: boolean;
@@ -207,7 +210,7 @@ export async function startAiThinkingJob(params: {
   job_meta: AiThinkingJobState;
 }> {
   const repo = getAskmoreV2Repository();
-  const session = await repo.getSession(params.sessionId);
+  const session = await repo.getSession(params.sessionId, params.workspaceId);
   if (!session) throw new Error("Session not found");
   if (session.status !== "completed") throw new AiThinkingSessionStatusError();
 
@@ -228,6 +231,7 @@ export async function startAiThinkingJob(params: {
   const job: AiThinkingJobState = {
     job_id: jobId,
     session_id: params.sessionId,
+    workspace_id: params.workspaceId,
     trigger: params.trigger,
     status: "running",
     created_at: now,
@@ -329,6 +333,7 @@ export function getAiThinkingJob(jobId: string): AiThinkingJobState | null {
 
 async function createAiThinkingInternal(params: {
   sessionId: string;
+  workspaceId?: string;
   language?: AskmoreV2Language;
   trigger: AskmoreV2InsightTrigger;
   forceRegenerate?: boolean;
@@ -343,7 +348,7 @@ async function createAiThinkingInternal(params: {
   }) => void;
 }): Promise<CreateAiThinkingResult> {
   const repo = getAskmoreV2Repository();
-  const session = await repo.getSession(params.sessionId);
+  const session = await repo.getSession(params.sessionId, params.workspaceId);
   if (!session) throw new Error("Session not found");
   if (session.status !== "completed") throw new AiThinkingSessionStatusError();
 
@@ -364,7 +369,7 @@ async function createAiThinkingInternal(params: {
     };
   }
 
-  const flow = await repo.getFlowVersion(session.flow_version_id);
+  const flow = await repo.getFlowVersion(session.flow_version_id, params.workspaceId);
   if (!flow) throw new Error("Flow version not found");
   const canonicalFlow = toCanonicalFlowDefinition(flow.flow_jsonb);
   const selectedLanguage = params.language ?? canonicalFlow.language;
@@ -399,6 +404,9 @@ async function createAiThinkingInternal(params: {
       status: "start",
     });
     const aiThinkingResult = generated.result;
+    const promptRevision = (aiThinkingResult.prompt_composition ?? [])
+      .find((item) => item.startsWith("prompt_revision:"))
+      ?.slice("prompt_revision:".length) ?? null;
 
     const runRecord: AskmoreV2InsightRunRecord = {
       id: runId,
@@ -416,6 +424,7 @@ async function createAiThinkingInternal(params: {
         question_count: context.question_sheet.length,
         message_count: context.conversation_history.length,
         ai_thinking_debug: {
+          prompt_revision: promptRevision,
           stage_b_draft1: generated.debug.stage_b_draft1,
           stage_b_draft1_skipped: generated.debug.stage_b_draft1_skipped ?? false,
           stage_b_draft1_skip_reason: generated.debug.stage_b_draft1_skip_reason ?? null,
@@ -440,7 +449,7 @@ async function createAiThinkingInternal(params: {
       latest_error: null,
     };
     session.updated_at = createdAt;
-    await updateSessionWithRetry(session);
+    await updateSessionWithRetry(session, params.workspaceId);
     return {
       ai_thinking_result: aiThinkingResult,
       run_meta: {
@@ -479,7 +488,7 @@ async function createAiThinkingInternal(params: {
     };
     session.updated_at = createdAt;
     try {
-      await updateSessionWithRetry(session);
+      await updateSessionWithRetry(session, params.workspaceId);
     } catch {
       // ignore session update errors for error-path bookkeeping
     }
@@ -489,13 +498,16 @@ async function createAiThinkingInternal(params: {
 
 export async function listAiThinkingRuns(params: {
   sessionId: string;
+  workspaceId?: string;
   limit?: number;
 }): Promise<{
   latest: AskmoreV2InsightRunRecord | null;
   history: AskmoreV2InsightRunRecord[];
 }> {
   const repo = getAskmoreV2Repository();
-  const history = (await repo.listInsightRuns(params.sessionId, params.limit ?? 20)).filter(isV2Run);
+  const history = (
+    await repo.listInsightRuns(params.sessionId, params.limit ?? 20, params.workspaceId)
+  ).filter(isV2Run);
   return {
     latest: history[0] ?? null,
     history,
@@ -505,15 +517,17 @@ export async function listAiThinkingRuns(params: {
 export async function tryAutoGenerateInsightOnCompletion(params: {
   sessionId: string;
   language: AskmoreV2Language;
+  workspaceId?: string;
 }): Promise<void> {
   const repo = getAskmoreV2Repository();
-  const session = await repo.getSession(params.sessionId);
+  const session = await repo.getSession(params.sessionId, params.workspaceId);
   if (!session) return;
   if (session.status !== "completed") return;
 
   try {
     await createAiThinking({
       sessionId: params.sessionId,
+      workspaceId: params.workspaceId,
       language: params.language,
       trigger: "auto_on_completed",
       forceRegenerate: false,

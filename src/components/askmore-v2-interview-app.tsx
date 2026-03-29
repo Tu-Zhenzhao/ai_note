@@ -378,6 +378,7 @@ type AiThinkingStageBDraft1Debug = {
   observation_anchors: string[];
   open_questions_or_hypotheses: string[];
   tone_risks_to_avoid_in_draft2: string[];
+  raw_json: Record<string, unknown>;
 };
 
 type AiThinkingJobProgress = {
@@ -598,6 +599,7 @@ function extractStageBDraft1Debug(run: InsightRunRecord | null | undefined): AiT
     observation_anchors: toStringArray(draft1.observation_anchors),
     open_questions_or_hypotheses: toStringArray(draft1.open_questions_or_hypotheses),
     tone_risks_to_avoid_in_draft2: toStringArray(draft1.tone_risks_to_avoid_in_draft2),
+    raw_json: draft1,
   };
 }
 
@@ -1833,21 +1835,32 @@ export function AskmoreV2InterviewApp() {
     }
   }
 
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
   return (
     <main className="v2-page">
       <div className="v2-shell">
         <header className="v2-header">
           <div className="v2-title-wrap">
-            <span className="v2-badge">v2</span>
+            <span className="v2-badge" style={{ fontSize: "16px", background: "var(--color-accent-soft)", color: "var(--color-accent)" }}>🎙️</span>
             <div>
-              <div className="v2-title">AskMore v0.2 · Interview</div>
-              <div className="v2-subtitle">单问题最多追问 4 次，支持随时 summary</div>
+              <div className="v2-title">AskMore v0.3 · Interview</div>
+              <div className="v2-subtitle">好的答案，来自被理解的过程</div>
             </div>
           </div>
           <div className="v2-header-actions">
             <a className="v2-link" href="/askmore_v2/builder">前往 Builder</a>
             <button className="v2-btn ghost" onClick={() => void loadActiveFlow()} disabled={activeFlowLoading}>
               {activeFlowLoading ? "刷新中..." : "刷新 Flow"}
+            </button>
+            <button className="v2-btn ghost" onClick={() => void logout()}>
+              {language === "zh" ? "退出" : "Logout"}
             </button>
           </div>
         </header>
@@ -2444,59 +2457,90 @@ export function AskmoreV2InterviewApp() {
 
       {insightDialog && (
         <div className="v2-summary-overlay" role="dialog" aria-modal="true">
-          <div className="v2-summary-dialog">
+          <div className="v2-summary-dialog v2-insight-dialog">
             <div className="v2-summary-head">
-              <div className="v2-summary-title">{aiThinkingTitle}</div>
+              <div className="v2-summary-title">
+                <span className="v2-insight-title-icon">✨</span>
+                {aiThinkingTitle}
+              </div>
               <button className="v2-btn ghost" onClick={() => setInsightDialog(null)}>
                 关闭
               </button>
             </div>
-            <div className="v2-summary-body">
+            <div className="v2-summary-body v2-insight-body">
               {insightDialog.insight.quality_flags.too_generic && (
                 <div className="v2-quality-warning">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   当前结果质量偏低（内容过于泛化），建议点击“重跑”重新生成。
                 </div>
               )}
-              <div className="v2-insight-section">
-                <h4>我对你现在情况的判断</h4>
-                <div className="v2-summary-text v2-markdown">
-                  <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.professional_read)}</ReactMarkdown>
+
+              <div className="v2-insight-hero">
+                <div className="v2-insight-card v2-insight-card-judgment">
+                  <div className="v2-card-header">
+                    <div className="v2-card-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </div>
+                    <h4>我对你现在情况的判断</h4>
+                  </div>
+                  <div className="v2-summary-text v2-markdown v2-insight-content">
+                    <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.professional_read)}</ReactMarkdown>
+                  </div>
+                </div>
+
+                <div className="v2-insight-grid">
+                  <div className="v2-insight-card v2-insight-card-attention">
+                    <div className="v2-card-header">
+                      <div className="v2-card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+                      </div>
+                      <h4>我现在最想提醒和补看的地方</h4>
+                    </div>
+                    {insightDialog.insight.what_i_would_pay_attention_to.trim().length === 0 ? (
+                      <div className="v2-empty-inline">暂无</div>
+                    ) : (
+                      <div className="v2-summary-text v2-markdown v2-insight-content">
+                        <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.what_i_would_pay_attention_to)}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="v2-insight-card v2-insight-card-guidance">
+                    <div className="v2-card-header">
+                      <div className="v2-card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                      </div>
+                      <h4>我会给你的实际建议</h4>
+                    </div>
+                    {insightDialog.insight.practical_guidance.trim().length === 0 ? (
+                      <div className="v2-empty-inline">暂无</div>
+                    ) : (
+                      <div className="v2-summary-text v2-markdown v2-insight-content">
+                        <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.practical_guidance)}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="v2-insight-section">
-                <h4>我现在最想提醒和补看的地方</h4>
-                {insightDialog.insight.what_i_would_pay_attention_to.trim().length === 0 ? (
-                  <div className="v2-empty-inline">暂无</div>
-                ) : (
-                  <div className="v2-summary-text v2-markdown">
-                    <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.what_i_would_pay_attention_to)}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-              <div className="v2-insight-section">
-                <h4>我会给你的实际建议</h4>
-                {insightDialog.insight.practical_guidance.trim().length === 0 ? (
-                  <div className="v2-empty-inline">暂无</div>
-                ) : (
-                  <div className="v2-summary-text v2-markdown">
-                    <ReactMarkdown>{normalizeMarkdownText(insightDialog.insight.practical_guidance)}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
+
               {insightDialog.insight.additional_sections && Object.keys(insightDialog.insight.additional_sections).length > 0 && (
-                <div className="v2-insight-section">
-                  <h4>扩展结构字段</h4>
-                  {Object.entries(insightDialog.insight.additional_sections).map(([key, value]) => (
-                    <div key={`additional-${key}`} style={{ marginBottom: 10 }}>
-                      <div className="v2-block-title">{toDisplaySectionTitle(key)}</div>
-                      {renderAdditionalSectionValue(value)}
-                    </div>
-                  ))}
+                <div className="v2-insight-section v2-insight-additional">
+                  <h4 className="v2-section-label">扩展结构字段</h4>
+                  <div className="v2-additional-grid">
+                    {Object.entries(insightDialog.insight.additional_sections).map(([key, value]) => (
+                      <div key={`additional-${key}`} className="v2-additional-item">
+                        <div className="v2-block-title">{toDisplaySectionTitle(key)}</div>
+                        <div className="v2-additional-value">{renderAdditionalSectionValue(value)}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-              <details className="v2-insight-trace">
-                <summary>AI_AGENT 思考路径（工程调试）</summary>
-                <pre className="v2-summary-json">
+
+              <div className="v2-insight-footer-debug">
+                <details className="v2-insight-trace">
+                  <summary>AI_AGENT 思考路径（工程调试）</summary>
+                  <pre className="v2-summary-json">
 {JSON.stringify({
   domain: insightDialog.insight.domain,
   pack_trace: insightDialog.insight.pack_trace,
@@ -2509,59 +2553,58 @@ export function AskmoreV2InterviewApp() {
   additional_sections: insightDialog.insight.additional_sections ?? {},
   stage_call_logs: stageCallLogsInDialog,
 }, null, 2)}
-                </pre>
-              </details>
-              <details className="v2-insight-trace">
-                <summary>Stage B Draft1 原文（工程调试）</summary>
-                {stageBDraft1Debug ? (
-                  <div className="v2-draft1-debug">
-                    <div className="v2-insight-section">
-                      <h4>Draft1 · 我对你现在情况的判断（原稿）</h4>
-                      <div className="v2-summary-text v2-markdown">
-                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_professional_read)}</ReactMarkdown>
+                  </pre>
+                </details>
+                <details className="v2-insight-trace">
+                  <summary>Stage B Draft1 原文（工程调试）</summary>
+                  {stageBDraft1Debug ? (
+                    <div className="v2-draft1-debug">
+                      <div className="v2-insight-section">
+                        <h4>Draft1 · 我对你现在情况的判断（原稿）</h4>
+                        <div className="v2-summary-text v2-markdown">
+                          <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_professional_read)}</ReactMarkdown>
+                        </div>
                       </div>
-                    </div>
-                    <div className="v2-insight-section">
-                      <h4>Draft1 · 我现在最想提醒和补看的地方（原稿）</h4>
-                      <div className="v2-summary-text v2-markdown">
-                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_attention_points)}</ReactMarkdown>
+                      <div className="v2-insight-section">
+                        <h4>Draft1 · 我现在最想提醒和补看的地方（原稿）</h4>
+                        <div className="v2-summary-text v2-markdown">
+                          <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_attention_points)}</ReactMarkdown>
+                        </div>
                       </div>
-                    </div>
-                    <div className="v2-insight-section">
-                      <h4>Draft1 · 我会给你的实际建议（原稿）</h4>
-                      <div className="v2-summary-text v2-markdown">
-                        <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_practical_guidance)}</ReactMarkdown>
+                      <div className="v2-insight-section">
+                        <h4>Draft1 · 我会给你的实际建议（原稿）</h4>
+                        <div className="v2-summary-text v2-markdown">
+                          <ReactMarkdown>{normalizeMarkdownText(stageBDraft1Debug.draft1_practical_guidance)}</ReactMarkdown>
+                        </div>
                       </div>
-                    </div>
-                    <pre className="v2-summary-json">
+                      <pre className="v2-summary-json">
 {JSON.stringify({
-  observation_anchors: stageBDraft1Debug.observation_anchors,
-  open_questions_or_hypotheses: stageBDraft1Debug.open_questions_or_hypotheses,
-  tone_risks_to_avoid_in_draft2: stageBDraft1Debug.tone_risks_to_avoid_in_draft2,
+  ...stageBDraft1Debug.raw_json,
 }, null, 2)}
-                    </pre>
-                  </div>
-                ) : (
-                  <div className="v2-empty-inline">当前 run 暂无 Draft1 调试快照。</div>
-                )}
-              </details>
-              <div className="v2-insight-section">
-                <h4>历史运行</h4>
-                {insightDialog.history.length === 0 ? (
-                  <div className="v2-empty-inline">暂无历史记录</div>
-                ) : (
-                  <ul className="v2-inline-list">
-                    {insightDialog.history.slice(0, 10).map((item) => (
-                      <li key={item.id}>
-                        {new Date(item.created_at).toLocaleString()} · {item.trigger_source} · {item.error_text
-                          ? `ERROR: ${item.error_text}`
-                          : item.quality_flags_jsonb?.too_generic
-                            ? "low_quality_generic"
-                            : "ok"}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="v2-empty-inline">当前 run 暂无 Draft1 调试快照。</div>
+                  )}
+                </details>
+                <div className="v2-insight-section">
+                  <h4>历史运行</h4>
+                  {insightDialog.history.length === 0 ? (
+                    <div className="v2-empty-inline">暂无历史记录</div>
+                  ) : (
+                    <ul className="v2-inline-list">
+                      {insightDialog.history.slice(0, 10).map((item) => (
+                        <li key={item.id}>
+                          {new Date(item.created_at).toLocaleString()} · {item.trigger_source} · {item.error_text
+                            ? `ERROR: ${item.error_text}`
+                            : item.quality_flags_jsonb?.too_generic
+                              ? "low_quality_generic"
+                              : "ok"}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
             <div className="v2-summary-foot">
@@ -3542,61 +3585,213 @@ export function AskmoreV2InterviewApp() {
           padding: 20px;
         }
         .v2-summary-dialog {
-          width: min(920px, 100%);
-          max-height: min(86vh, 920px);
+          width: min(1000px, 100%);
+          max-height: min(90vh, 1200px);
           overflow: auto;
-          background: #fffdf3;
-          border: 1px solid #facc15;
-          border-radius: 16px;
-          box-shadow: 0 22px 52px rgba(15, 23, 42, 0.25);
+          background: #fcfbf9;
+          border: 1px solid #e5e2da;
+          border-radius: 24px;
+          box-shadow: 0 22px 52px rgba(45, 43, 41, 0.2);
           display: flex;
           flex-direction: column;
+          animation: v2-dialog-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes v2-dialog-fade-in {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .v2-insight-dialog {
+          border: 1px solid #d4a01744;
         }
         .v2-summary-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 12px;
-          padding: 14px 16px;
-          border-bottom: 1px solid #fde68a;
-          background: linear-gradient(180deg, rgba(254, 249, 195, 0.85), rgba(255, 255, 255, 0.96));
+          padding: 20px 24px;
+          border-bottom: 1px solid #e5e2da;
+          background: rgba(252, 251, 249, 0.9);
+          backdrop-filter: blur(8px);
           position: sticky;
           top: 0;
+          z-index: 10;
         }
         .v2-summary-title {
-          font-size: 15px;
+          font-size: 18px;
           font-weight: 700;
-          color: #713f12;
+          color: #2d2b29;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .v2-insight-title-icon {
+          font-size: 20px;
         }
         .v2-summary-body {
-          padding: 16px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
+          gap: 20px;
+        }
+        .v2-insight-hero {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+        .v2-insight-card {
+          background: #fff;
+          border: 1px solid #e5e2da;
+          border-radius: 16px;
+          padding: 24px;
+          transition: transform 0.2s ease;
+        }
+        .v2-card-header {
+          display: flex;
+          align-items: center;
           gap: 12px;
+          margin-bottom: 16px;
         }
-        .v2-summary-text {
-          white-space: pre-wrap;
-          line-height: 1.75;
-          color: #1f2937;
-          font-size: 14px;
+        .v2-card-icon {
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
         }
+        .v2-card-header h4 {
+          margin: 0;
+          font-size: 17px;
+          font-weight: 700;
+          color: #2d2b29;
+        }
+        
+        .v2-insight-card-judgment {
+          border-left: 4px solid #78756e;
+          background: linear-gradient(to bottom right, #ffffff, #f9f8f6);
+        }
+        .v2-insight-card-judgment .v2-card-icon {
+          background: #f0ede5;
+          color: #2d2b29;
+        }
+
+        .v2-insight-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+
+        .v2-insight-card-attention {
+          border-left: 4px solid #d4a017;
+          background: linear-gradient(to bottom right, #ffffff, #fffdf3);
+        }
+        .v2-insight-card-attention .v2-card-icon {
+          background: #fef9c3;
+          color: #854d0e;
+        }
+
+        .v2-insight-card-guidance {
+          border-left: 4px solid #0d7b64;
+          background: linear-gradient(to bottom right, #ffffff, #f0fdf4);
+        }
+        .v2-insight-card-guidance .v2-card-icon {
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .v2-insight-content {
+          font-size: 15px;
+          line-height: 1.8;
+          color: #4a4844;
+        }
+
         .v2-markdown :global(p) {
-          margin: 0 0 10px;
+          margin: 0 0 14px;
         }
         .v2-markdown :global(p:last-child) {
           margin-bottom: 0;
         }
         .v2-markdown :global(ul),
         .v2-markdown :global(ol) {
-          margin: 6px 0 10px 20px;
+          margin: 8px 0 16px 24px;
           padding: 0;
         }
         .v2-markdown :global(li) {
-          margin: 4px 0;
+          margin: 6px 0;
         }
         .v2-markdown :global(strong) {
-          color: #111827;
+          color: #2d2b29;
           font-weight: 700;
+          background: linear-gradient(180deg, transparent 60%, rgba(212, 160, 23, 0.1) 60%);
+          padding: 0 2px;
+        }
+        .v2-markdown :global(blockquote) {
+          margin: 16px 0;
+          padding: 12px 20px;
+          border-left: 4px solid #e5e2da;
+          background: #f9f8f6;
+          color: #6b7280;
+          font-style: italic;
+          border-radius: 0 8px 8px 0;
+        }
+        .v2-markdown :global(h1), 
+        .v2-markdown :global(h2), 
+        .v2-markdown :global(h3) {
+          color: #2d2b29;
+          margin: 24px 0 12px;
+          font-weight: 700;
+        }
+        .v2-markdown :global(h3) { font-size: 1.1em; }
+
+        .v2-insight-additional {
+          margin-top: 20px;
+          padding: 24px;
+          background: #fff;
+          border: 1px solid #e5e2da;
+          border-radius: 16px;
+        }
+        .v2-section-label {
+          font-size: 15px;
+          font-weight: 700;
+          color: #78756e;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 20px;
+        }
+        .v2-additional-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 20px;
+        }
+        .v2-additional-item {
+          padding: 16px;
+          background: #f9f8f6;
+          border-radius: 12px;
+          border: 1px solid #e5e2da;
+        }
+        .v2-additional-value {
+          font-size: 14px;
+          color: #4a4844;
+          margin-top: 8px;
+        }
+
+        .v2-insight-footer-debug {
+          margin-top: 40px;
+          padding-top: 24px;
+          border-top: 1px dashed #e5e2da;
+          opacity: 0.6;
+          transition: opacity 0.2s;
+        }
+        .v2-insight-footer-debug:hover {
+          opacity: 1;
+        }
+
+        .v2-summary-text {
+          white-space: pre-wrap;
+          line-height: 1.8;
+          color: #2d2b29;
+          font-size: 15px;
         }
         .v2-summary-json {
           margin: 0;

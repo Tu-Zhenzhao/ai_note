@@ -45,4 +45,13 @@ describe("askmore v2 insight resolver", () => {
     expect(resolved.packTrace.style_pack).toBe("style.direct_advisor.v1");
     expect(resolved.packTrace.safety_pack).toBe("safety.standard.v1");
   });
+
+  test("uses pet owner reassuring style for pet clinic domain", () => {
+    const resolved = resolveInsightPacks({
+      domain: "pet_clinic",
+      subdomain: "general",
+    });
+    expect(resolved.packTrace.style_pack).toBe("style.pet_owner_reassuring.v1");
+    expect(resolved.packTrace.safety_pack).toBe("safety.healthcare.v1");
+  });
 });

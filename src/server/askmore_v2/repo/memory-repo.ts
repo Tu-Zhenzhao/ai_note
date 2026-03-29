@@ -8,6 +8,7 @@ import {
   AskmoreV2TurnEvent,
 } from "@/server/askmore_v2/types";
 import { AskmoreV2Repository } from "@/server/askmore_v2/repo/contracts";
+import { DEFAULT_WORKSPACE_ID } from "@/server/auth/constants";
 
 interface AskmoreV2Store {
   flows: Map<string, AskmoreV2FlowVersion>;
@@ -50,31 +51,52 @@ export function resetAskmoreV2MemoryStore(): void {
 
 export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
   private readonly store = getStore();
-
-  async createFlowVersion(flow: AskmoreV2FlowVersion): Promise<void> {
-    this.store.flows.set(flow.id, flow);
+  private resolveWorkspaceId(workspaceId?: string): string {
+    const normalized = workspaceId?.trim();
+    return normalized && normalized.length > 0 ? normalized : DEFAULT_WORKSPACE_ID;
   }
 
-  async listFlowVersions(limit = 50): Promise<AskmoreV2FlowVersion[]> {
+  async createFlowVersion(flow: AskmoreV2FlowVersion): Promise<void> {
+    const workspaceId = this.resolveWorkspaceId(flow.workspace_id);
+    this.store.flows.set(flow.id, {
+      ...flow,
+      workspace_id: workspaceId,
+    });
+    flow.workspace_id = workspaceId;
+  }
+
+  async listFlowVersions(limit = 50, workspaceId?: string): Promise<AskmoreV2FlowVersion[]> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
     return Array.from(this.store.flows.values())
+      .filter((flow) => this.resolveWorkspaceId(flow.workspace_id) === scopeWorkspaceId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, limit);
   }
 
-  async getFlowVersion(flowVersionId: string): Promise<AskmoreV2FlowVersion | null> {
-    return this.store.flows.get(flowVersionId) ?? null;
+  async getFlowVersion(flowVersionId: string, workspaceId?: string): Promise<AskmoreV2FlowVersion | null> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
+    const flow = this.store.flows.get(flowVersionId) ?? null;
+    if (!flow) return null;
+    if (this.resolveWorkspaceId(flow.workspace_id) !== scopeWorkspaceId) return null;
+    return flow;
   }
 
-  async getActiveFlowVersion(): Promise<AskmoreV2FlowVersion | null> {
+  async getActiveFlowVersion(workspaceId?: string): Promise<AskmoreV2FlowVersion | null> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
     const published = Array.from(this.store.flows.values())
-      .filter((flow) => flow.status === "published")
+      .filter((flow) => (
+        flow.status === "published"
+        && this.resolveWorkspaceId(flow.workspace_id) === scopeWorkspaceId
+      ))
       .sort((a, b) => b.version - a.version);
     return published[0] ?? null;
   }
 
-  async clearPublishedFlowVersions(): Promise<void> {
+  async clearPublishedFlowVersions(workspaceId?: string): Promise<void> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
     for (const [id, flow] of this.store.flows.entries()) {
       if (flow.status !== "published") continue;
+      if (this.resolveWorkspaceId(flow.workspace_id) !== scopeWorkspaceId) continue;
       this.store.flows.set(id, {
         ...flow,
         status: "draft",
@@ -84,23 +106,36 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
   }
 
   async createSession(session: AskmoreV2Session): Promise<void> {
+    const workspaceId = this.resolveWorkspaceId(session.workspace_id);
     this.store.sessions.set(session.id, {
       ...session,
+      workspace_id: workspaceId,
       state_version: session.state_version > 0 ? session.state_version : 1,
     });
+    session.workspace_id = workspaceId;
   }
 
-  async getSession(sessionId: string): Promise<AskmoreV2Session | null> {
-    return this.store.sessions.get(sessionId) ?? null;
+  async getSession(sessionId: string, workspaceId?: string): Promise<AskmoreV2Session | null> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
+    const session = this.store.sessions.get(sessionId) ?? null;
+    if (!session) return null;
+    if (this.resolveWorkspaceId(session.workspace_id) !== scopeWorkspaceId) return null;
+    return session;
   }
 
-  async listSessions(limit = 100): Promise<AskmoreV2Session[]> {
+  async listSessions(limit = 100, workspaceId?: string): Promise<AskmoreV2Session[]> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
     return Array.from(this.store.sessions.values())
+      .filter((session) => this.resolveWorkspaceId(session.workspace_id) === scopeWorkspaceId)
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .slice(0, limit);
   }
 
-  async deleteSession(sessionId: string): Promise<boolean> {
+  async deleteSession(sessionId: string, workspaceId?: string): Promise<boolean> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
+    const session = this.store.sessions.get(sessionId);
+    if (!session) return false;
+    if (this.resolveWorkspaceId(session.workspace_id) !== scopeWorkspaceId) return false;
     const existed = this.store.sessions.delete(sessionId);
     this.store.messages.delete(sessionId);
     this.store.events.delete(sessionId);
@@ -119,10 +154,13 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
     if (current.state_version !== session.state_version) {
       throw new Error("ASKMORE_V2_STATE_VERSION_CONFLICT");
     }
+    const workspaceId = this.resolveWorkspaceId(session.workspace_id ?? current.workspace_id);
     this.store.sessions.set(session.id, {
       ...session,
+      workspace_id: workspaceId,
       state_version: session.state_version + 1,
     });
+    session.workspace_id = workspaceId;
     session.state_version += 1;
   }
 
@@ -188,15 +226,19 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
     this.store.insightRuns.set(record.session_id, list);
   }
 
-  async listInsightRuns(sessionId: string, limit = 20): Promise<AskmoreV2InsightRunRecord[]> {
+  async listInsightRuns(sessionId: string, limit = 20, workspaceId?: string): Promise<AskmoreV2InsightRunRecord[]> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
+    const session = this.store.sessions.get(sessionId);
+    if (!session) return [];
+    if (this.resolveWorkspaceId(session.workspace_id) !== scopeWorkspaceId) return [];
     const list = this.store.insightRuns.get(sessionId) ?? [];
     return [...list]
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, limit);
   }
 
-  async getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null> {
-    const list = await this.listInsightRuns(sessionId, 1);
+  async getLatestInsightRun(sessionId: string, workspaceId?: string): Promise<AskmoreV2InsightRunRecord | null> {
+    const list = await this.listInsightRuns(sessionId, 1, workspaceId);
     return list[0] ?? null;
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
 import { reviewRawQuestions } from "@/server/askmore_v2/services/builder-service";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const bodySchema = z.object({
   raw_questions: z.array(z.string().min(1)).min(1),
@@ -12,6 +13,8 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse) return unauthorizedResponse;
     const payload = bodySchema.parse(await request.json());
     await ensureAskmoreV2PostgresReady();
     const result = await reviewRawQuestions(payload);

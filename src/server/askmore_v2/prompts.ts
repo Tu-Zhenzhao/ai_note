@@ -1,14 +1,57 @@
 import { readFileSync } from "fs";
 import { join } from "path";
+import { createHash } from "crypto";
+import { statSync } from "fs";
 
-const promptCache: Record<string, string> = {};
+interface PromptCacheEntry {
+  content: string;
+  mtime_ms: number;
+}
+
+const promptCache: Record<string, PromptCacheEntry> = {};
+
+function hashPromptRevision(parts: string[]): string {
+  const hash = createHash("sha1");
+  for (const part of parts) {
+    hash.update(part);
+    hash.update("\n---\n");
+  }
+  return hash.digest("hex").slice(0, 12);
+}
+
+function promptCacheEnabled(): boolean {
+  return process.env.NODE_ENV === "production";
+}
 
 function loadPromptFile(filename: string, fallback: string): string {
-  if (promptCache[filename]) return promptCache[filename];
+  const filePath = join(process.cwd(), "src", "server", "prompts", filename);
+  const canUseCache = promptCacheEnabled();
+  if (canUseCache && promptCache[filename]) {
+    try {
+      const stat = statSync(filePath);
+      if (Number.isFinite(stat.mtimeMs) && stat.mtimeMs === promptCache[filename].mtime_ms) {
+        return promptCache[filename].content;
+      }
+    } catch {
+      // fallthrough to fallback/refresh
+    }
+  }
   try {
-    const filePath = join(process.cwd(), "src", "server", "prompts", filename);
-    promptCache[filename] = readFileSync(filePath, "utf-8");
-    return promptCache[filename];
+    const content = readFileSync(filePath, "utf-8");
+    if (canUseCache) {
+      let mtimeMs = 0;
+      try {
+        const stat = statSync(filePath);
+        if (Number.isFinite(stat.mtimeMs)) mtimeMs = stat.mtimeMs;
+      } catch {
+        // keep 0; still safe
+      }
+      promptCache[filename] = {
+        content,
+        mtime_ms: mtimeMs,
+      };
+    }
+    return content;
   } catch {
     return fallback;
   }
@@ -150,6 +193,7 @@ export interface AskmoreV2PresentationPromptPack {
 }
 
 export interface AskmoreV2AiThinkingPromptAssets {
+  prompt_revision: string;
   system_base_prompt_v2: string;
   stage_b_explore_v2: string;
   stage_b_write_v2: string;
@@ -169,30 +213,46 @@ export function askmoreV2PresentationPromptPack(): AskmoreV2PresentationPromptPa
 }
 
 export function askmoreV2AiThinkingPromptAssets(): AskmoreV2AiThinkingPromptAssets {
+  const systemBase = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_SYSTEM_BASE_V2.md",
+    AI_THINKING_SYSTEM_BASE_V2_FALLBACK,
+  );
+  const stageBExplore = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_STAGE_B_EXPLORE_V2.md",
+    AI_THINKING_STAGE_B_EXPLORE_V2_FALLBACK,
+  );
+  const stageBWrite = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_STAGE_B_WRITE_V2.md",
+    AI_THINKING_STAGE_B_WRITE_V2_FALLBACK,
+  );
+  const mentalHealth = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_MENTAL_HEALTH_INTAKE_V2.md",
+    AI_THINKING_MENTAL_HEALTH_INTAKE_V2_FALLBACK,
+  );
+  const business = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_BUSINESS_GENERAL_V2.md",
+    AI_THINKING_BUSINESS_GENERAL_V2_FALLBACK,
+  );
+  const pet = loadPromptFile(
+    "ASKMORE_V2_AI_THINKING_PET_CLINIC_GENERAL_V2.md",
+    AI_THINKING_PET_CLINIC_GENERAL_V2_FALLBACK,
+  );
+  const promptRevision = hashPromptRevision([
+    systemBase,
+    stageBExplore,
+    stageBWrite,
+    mentalHealth,
+    business,
+    pet,
+  ]);
+
   return {
-    system_base_prompt_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_SYSTEM_BASE_V2.md",
-      AI_THINKING_SYSTEM_BASE_V2_FALLBACK,
-    ),
-    stage_b_explore_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_STAGE_B_EXPLORE_V2.md",
-      AI_THINKING_STAGE_B_EXPLORE_V2_FALLBACK,
-    ),
-    stage_b_write_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_STAGE_B_WRITE_V2.md",
-      AI_THINKING_STAGE_B_WRITE_V2_FALLBACK,
-    ),
-    mental_health_intake_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_MENTAL_HEALTH_INTAKE_V2.md",
-      AI_THINKING_MENTAL_HEALTH_INTAKE_V2_FALLBACK,
-    ),
-    business_general_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_BUSINESS_GENERAL_V2.md",
-      AI_THINKING_BUSINESS_GENERAL_V2_FALLBACK,
-    ),
-    pet_clinic_general_v2: loadPromptFile(
-      "ASKMORE_V2_AI_THINKING_PET_CLINIC_GENERAL_V2.md",
-      AI_THINKING_PET_CLINIC_GENERAL_V2_FALLBACK,
-    ),
+    prompt_revision: promptRevision,
+    system_base_prompt_v2: systemBase,
+    stage_b_explore_v2: stageBExplore,
+    stage_b_write_v2: stageBWrite,
+    mental_health_intake_v2: mentalHealth,
+    business_general_v2: business,
+    pet_clinic_general_v2: pet,
   };
 }

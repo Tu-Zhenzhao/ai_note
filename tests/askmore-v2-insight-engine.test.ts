@@ -49,6 +49,19 @@ describe("askmore v2 ai thinking engine", () => {
         observation_anchors: ["夜里会哭", "刷社交媒体触发焦虑"],
         open_questions_or_hypotheses: ["有没有可能你白天在硬撑"],
         tone_risks_to_avoid_in_draft2: ["不要结论先行"],
+        provider_intent_by_question: ["问题1在判断触发场景，回答覆盖充分。"],
+        respondent_line_by_line_read: ["夜里会哭：提示白天可能持续压抑。"],
+        hypothesis_space: {
+          conservative: ["阶段性压力波动"],
+          balanced: ["比较-自责循环正在形成"],
+          aggressive: ["若持续可能扩展为功能受损模式"],
+        },
+        candidate_pool: {
+          reminders: ["先看触发链条"],
+          missing_checks: ["白天维持方式"],
+          practical_options: ["记录触发-想法-情绪"],
+          reassurance_lines: ["这是可干预窗口期，不是已失控状态"],
+        },
       })
       .mockResolvedValueOnce({
         professional_read: "我看到你反复提到同辈比较，这让我会想到你现在最痛的不只是焦虑本身，而是对自己的判断。有没有可能你白天其实一直在撑着？",
@@ -132,6 +145,19 @@ describe("askmore v2 ai thinking engine", () => {
         observation_anchors: ["夜里会哭"],
         open_questions_or_hypotheses: ["有没有可能白天一直在撑着"],
         tone_risks_to_avoid_in_draft2: ["避免结论先行"],
+        provider_intent_by_question: ["问题在判断夜间症状强度。"],
+        respondent_line_by_line_read: ["夜里会哭：提示压抑后释放。"],
+        hypothesis_space: {
+          conservative: ["短期波动"],
+          balanced: ["持续比较压力"],
+          aggressive: ["进入恶性循环风险"],
+        },
+        candidate_pool: {
+          reminders: ["先看触发链条"],
+          missing_checks: ["白天应对方式"],
+          practical_options: ["一周记录"],
+          reassurance_lines: ["目前仍在可干预窗口"],
+        },
       })
       .mockResolvedValueOnce({
         professional_read: "你目前正处于一个典型的焦虑期。",
@@ -213,6 +239,19 @@ describe("askmore v2 ai thinking engine", () => {
         observation_anchors: ["夜里会哭"],
         open_questions_or_hypotheses: ["有没有可能白天在硬撑"],
         tone_risks_to_avoid_in_draft2: [],
+        provider_intent_by_question: ["问题在判断当前症状切入点。"],
+        respondent_line_by_line_read: ["夜里会哭：提示白天压抑。"],
+        hypothesis_space: {
+          conservative: ["阶段性压力"],
+          balanced: ["比较压力+自责"],
+          aggressive: ["功能受损趋势"],
+        },
+        candidate_pool: {
+          reminders: ["先看触发链条"],
+          missing_checks: ["白天能量曲线"],
+          practical_options: ["日记法追踪"],
+          reassurance_lines: ["你并非失控，只是负荷过高"],
+        },
       })
       .mockResolvedValueOnce({
         professional_read: "我看到你提到夜里会哭，这让我会想到你白天可能一直在压着自己。有没有可能你并不是扛不住，而是扛太久了？",

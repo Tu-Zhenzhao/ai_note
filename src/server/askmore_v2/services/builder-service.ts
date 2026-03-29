@@ -71,6 +71,7 @@ export async function publishFlowVersion(params: {
   scenario?: string;
   target_output_type?: string;
   language?: AskmoreV2Language;
+  workspace_id?: string;
 }): Promise<{ flow_version_id: string; version: number; status: "published" }> {
   const repo = getAskmoreV2Repository();
   if (!Array.isArray(params.cards) || params.cards.length === 0) {
@@ -82,7 +83,8 @@ export async function publishFlowVersion(params: {
     throw new Error("At least one valid question card is required before publishing.");
   }
 
-  const existing = await repo.listFlowVersions(1);
+  const workspaceId = params.workspace_id;
+  const existing = await repo.listFlowVersions(1, workspaceId);
   const nextVersion = existing[0] ? existing[0].version + 1 : 1;
   const now = new Date().toISOString();
   const flowVersionId = randomUUID();
@@ -105,6 +107,7 @@ export async function publishFlowVersion(params: {
   const version: AskmoreV2FlowVersion = {
     id: flowVersionId,
     version: nextVersion,
+    workspace_id: workspaceId,
     status: "published",
     flow_jsonb: flowDefinition,
     published_at: now,
@@ -112,7 +115,7 @@ export async function publishFlowVersion(params: {
     updated_at: now,
   };
 
-  await repo.clearPublishedFlowVersions();
+  await repo.clearPublishedFlowVersions(workspaceId);
   await repo.createFlowVersion(version);
 
   return {
@@ -122,9 +125,9 @@ export async function publishFlowVersion(params: {
   };
 }
 
-export async function getActiveFlowVersion() {
+export async function getActiveFlowVersion(workspaceId?: string) {
   const repo = getAskmoreV2Repository();
-  const flow = await repo.getActiveFlowVersion();
+  const flow = await repo.getActiveFlowVersion(workspaceId);
   if (!flow) return null;
   return {
     ...flow,

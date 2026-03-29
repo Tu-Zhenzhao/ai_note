@@ -34,6 +34,19 @@ export interface AiThinkingStageBDraft1Result {
   observation_anchors: string[];
   open_questions_or_hypotheses: string[];
   tone_risks_to_avoid_in_draft2: string[];
+  provider_intent_by_question: string[];
+  respondent_line_by_line_read: string[];
+  hypothesis_space: {
+    conservative: string[];
+    balanced: string[];
+    aggressive: string[];
+  };
+  candidate_pool: {
+    reminders: string[];
+    missing_checks: string[];
+    practical_options: string[];
+    reassurance_lines: string[];
+  };
 }
 
 const STAGE_A_PROMPT = [
@@ -59,6 +72,8 @@ const STAGE_B_DRAFT2_PROMPT_FRAME = [
   "Stage B Draft2: final visible writing for AI Thinking v2.1.",
   "Follow stage_b_write_v2 as the primary writing guide.",
   "Use Stage B Draft1 as source material; preserve facts and evidence.",
+  "Write as a one-to-one professional conversation, not a report.",
+  "First hold owner emotion, then explain condition clearly, then converge to practical direction.",
   "Do not write checklist-style report language.",
   "Do not output generic process advice.",
   "Draft2 must NOT mirror Draft1 sentence order or paragraph structure.",
@@ -78,6 +93,14 @@ const STAGE_B_DRAFT2_REWRITE_PROMPT_FRAME = [
   "Improve only expression quality to avoid conclusion-first, template tone, or rigid report voice.",
   "Increase co-thinking flow: observation -> empathy -> hypothesis -> reflective question -> practical suggestion.",
   "Keep language natural, non-judgmental, and case-specific.",
+].join("\n");
+
+const PET_REASSURANCE_HARD_GUARD = [
+  "Pet-domain hard requirement (MUST):",
+  "- In each visible section, include one dedicated reassurance paragraph.",
+  "- Reassurance paragraph must feel natural in conversation; do not force fixed label templates.",
+  "- Reassurance must be evidence-based and paired with clear observation/escalation thresholds.",
+  "- Do not use empty comfort language.",
 ].join("\n");
 
 const OUTPUT_CONSTRAINT_PROMPT = [
@@ -209,6 +232,7 @@ function resolvePromptParts(params: {
     params.packTrace.safety_pack,
   ];
   const assets = askmoreV2AiThinkingPromptAssets();
+  const promptRevision = assets.prompt_revision || "unknown";
   const systemBase = nonEmptyPrompt("system_base_prompt_v2", assets.system_base_prompt_v2);
   const domainPrompt = nonEmptyPrompt(
     domainPromptKey(params.packTrace.domain_pack),
@@ -222,6 +246,7 @@ function resolvePromptParts(params: {
     packOrder,
     systemBase,
     domainPrompt,
+    promptRevision,
     outputLanguage,
     languageInstruction,
     languageSignal,
@@ -240,6 +265,7 @@ export function composeAiThinkingStageAPrompt(params: {
     packOrder,
     systemBase,
     domainPrompt,
+    promptRevision,
     outputLanguage,
     languageInstruction,
     languageSignal,
@@ -263,6 +289,7 @@ export function composeAiThinkingStageAPrompt(params: {
     prompt,
     promptComposition: [
       "stage_a",
+      `prompt_revision:${promptRevision}`,
       "system_base_prompt_v2",
       `domain_prompt:${params.packTrace.domain_pack}`,
       `resolved_packs:${packOrder.join(",")}`,
@@ -288,6 +315,7 @@ export function composeAiThinkingStageBDraft1Prompt(params: {
     packOrder,
     systemBase,
     domainPrompt,
+    promptRevision,
     outputLanguage,
     languageInstruction,
     languageSignal,
@@ -316,7 +344,20 @@ export function composeAiThinkingStageBDraft1Prompt(params: {
       '  "draft1_practical_guidance": "string",',
       '  "observation_anchors": ["string"],',
       '  "open_questions_or_hypotheses": ["string"],',
-      '  "tone_risks_to_avoid_in_draft2": ["string"]',
+      '  "tone_risks_to_avoid_in_draft2": ["string"],',
+      '  "provider_intent_by_question": ["string"],',
+      '  "respondent_line_by_line_read": ["string"],',
+      '  "hypothesis_space": {',
+      '    "conservative": ["string"],',
+      '    "balanced": ["string"],',
+      '    "aggressive": ["string"]',
+      "  },",
+      '  "candidate_pool": {',
+      '    "reminders": ["string"],',
+      '    "missing_checks": ["string"],',
+      '    "practical_options": ["string"],',
+      '    "reassurance_lines": ["string"]',
+      "  }",
       "}",
     ].join("\n"),
   ].join("\n\n");
@@ -326,6 +367,7 @@ export function composeAiThinkingStageBDraft1Prompt(params: {
     prompt,
     promptComposition: [
       "stage_b_draft1",
+      `prompt_revision:${promptRevision}`,
       "stage_b_explore",
       "system_base_prompt_v2",
       `domain_prompt:${params.packTrace.domain_pack}`,
@@ -356,6 +398,7 @@ export function composeAiThinkingStageBDraft2Prompt(params: {
     packOrder,
     systemBase,
     domainPrompt,
+    promptRevision,
     outputLanguage,
     languageInstruction,
     languageSignal,
@@ -390,6 +433,7 @@ export function composeAiThinkingStageBDraft2Prompt(params: {
 
   const promptComposition: string[] = [
     "stage_b_draft2",
+    `prompt_revision:${promptRevision}`,
     "stage_b_write",
     "system_base_prompt_v2",
     `domain_prompt:${params.packTrace.domain_pack}`,
@@ -411,6 +455,11 @@ export function composeAiThinkingStageBDraft2Prompt(params: {
       promptParts.push(`Previous Stage B Draft2 JSON:\n${JSON.stringify(params.previousDraft2Result)}`);
     }
     promptComposition.push("stage_b_draft2_retry");
+  }
+
+  if (params.context.domain === "pet_clinic") {
+    promptParts.push(PET_REASSURANCE_HARD_GUARD);
+    promptComposition.push("pet_owner_reassurance_guard");
   }
 
   return {
@@ -440,6 +489,19 @@ export function composeAiThinkingStageBPrompt(params: {
       observation_anchors: params.stageAResult.observed_facts,
       open_questions_or_hypotheses: params.stageAResult.claims,
       tone_risks_to_avoid_in_draft2: [],
+      provider_intent_by_question: [],
+      respondent_line_by_line_read: [],
+      hypothesis_space: {
+        conservative: [],
+        balanced: [],
+        aggressive: [],
+      },
+      candidate_pool: {
+        reminders: [],
+        missing_checks: [],
+        practical_options: [],
+        reassurance_lines: [],
+      },
     },
   });
 }

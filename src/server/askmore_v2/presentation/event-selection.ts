@@ -6,10 +6,17 @@ import {
   AskmoreV2SessionState,
   AskmoreV2VisibleEvent,
 } from "@/server/askmore_v2/types";
+import {
+  buildCompletionCaseSummary,
+  detectCompletionDomain,
+} from "@/server/askmore_v2/completion-closure";
 
 interface PresentationSemanticHints {
   reasoning_glimpse?: string;
   help_reframe?: string;
+  is_completion_closure?: boolean;
+  completion_case_summary?: string;
+  completion_domain?: "pet_clinic" | "general";
 }
 
 export interface PresentationDraftEvent {
@@ -117,10 +124,22 @@ export function selectPresentationDraftEvents(params: {
   routedIntent: AskmoreV2RoutedIntent;
   state: AskmoreV2SessionState;
   language: "zh" | "en";
+  transitionReason?: string | null;
+  scenario?: string | null;
+  targetOutputType?: string | null;
 }): PresentationDraftEvent[] {
   const now = new Date().toISOString();
   const drafts: PresentationDraftEvent[] = [];
   const debugEvents = params.debugEvents;
+  const transitionContent = firstContent(debugEvents, "transition_summary");
+  const transitionImpliesCompletion = /(访谈完成|本次访谈完成|interview\s+is\s+finished|interview\s+completed|finished)/i.test(
+    transitionContent ?? "",
+  );
+  const transitionReasonImpliesCompletion = /(end_interview|all_questions_completed|completed|finalized|finished)/i.test(
+    params.transitionReason ?? "",
+  );
+  const turnFinalized =
+    Boolean(params.state.session.finalized) || transitionImpliesCompletion || transitionReasonImpliesCompletion;
   const gapHint = clipHint(firstContent(debugEvents, "gap_notice") ?? firstItems(debugEvents, "gap_notice")[0]);
   const reasoningGlimpse = buildReasoningGlimpse({
     language: params.language,
@@ -139,7 +158,7 @@ export function selectPresentationDraftEvents(params: {
 
   const hasCoverageSignal = Boolean(firstContent(debugEvents, "coverage_summary"));
   const hasStateSignal = Boolean(firstContent(debugEvents, "state_update"));
-  if (hasCoverageSignal || hasStateSignal) {
+  if ((hasCoverageSignal || hasStateSignal) && !turnFinalized) {
     drafts.push({
       event_type: "why_this_matters",
       created_at: debugEvents[0]?.created_at ?? now,
@@ -150,11 +169,6 @@ export function selectPresentationDraftEvents(params: {
     });
   }
 
-  const transitionContent = firstContent(debugEvents, "transition_summary");
-  const transitionImpliesCompletion = /(访谈完成|本次访谈完成|interview\s+is\s+finished|interview\s+completed|finished)/i.test(
-    transitionContent ?? "",
-  );
-  const turnFinalized = Boolean(params.state.session.finalized) || transitionImpliesCompletion;
   const hasHelpExplanation = Boolean(firstContent(debugEvents, "help_explanation"));
 
   if (params.routedIntent.intent === "ask_for_help" || hasHelpExplanation) {
@@ -202,14 +216,36 @@ export function selectPresentationDraftEvents(params: {
 
   const nextStepContent = firstContent(debugEvents, "next_question");
   const nextStepDebugEvent = debugEvents.find((item) => item.event_type === "next_question");
+  const completionCaseSummary = turnFinalized
+    ? buildCompletionCaseSummary({
+      language: params.language,
+      understanding,
+      state: params.state,
+    })
+    : undefined;
+  const completionDomain = turnFinalized
+    ? detectCompletionDomain({
+      scenario: params.scenario,
+      targetOutputType: params.targetOutputType,
+      transitionContent,
+      understanding,
+      state: params.state,
+    })
+    : undefined;
   drafts.push({
     event_type: "transition",
     created_at: debugEvents[debugEvents.length - 1]?.created_at ?? now,
     content_hint: transitionContent ?? fallbackTransition(params.language),
-    semantic_hints: hasCoverageSignal
+    semantic_hints: turnFinalized
       ? {
-          reasoning_glimpse: reasoningGlimpse,
-        }
+        is_completion_closure: true,
+        completion_case_summary: completionCaseSummary,
+        completion_domain: completionDomain,
+      }
+      : hasCoverageSignal
+      ? {
+        reasoning_glimpse: reasoningGlimpse,
+      }
       : undefined,
   });
   if (nextStepContent && !turnFinalized) {

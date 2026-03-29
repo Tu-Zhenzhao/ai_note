@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
-import { deleteAskmoreV2Session } from "@/server/askmore_v2/services/session-service";
+import { deleteAskmoreV2SessionInWorkspace } from "@/server/askmore_v2/services/session-service";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const bodySchema = z.object({
   session_id: z.string().uuid(),
@@ -9,9 +10,14 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const payload = bodySchema.parse(await request.json());
     await ensureAskmoreV2PostgresReady();
-    const deleted = await deleteAskmoreV2Session(payload.session_id);
+    const deleted = await deleteAskmoreV2SessionInWorkspace({
+      sessionId: payload.session_id,
+      workspaceId: auth.workspace.id,
+    });
     if (!deleted) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

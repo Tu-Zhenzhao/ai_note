@@ -35,6 +35,19 @@ const stageBDraft1Schema = z.object({
   observation_anchors: z.array(z.string().trim()),
   open_questions_or_hypotheses: z.array(z.string().trim()),
   tone_risks_to_avoid_in_draft2: z.array(z.string().trim()),
+  provider_intent_by_question: z.array(z.string().trim()),
+  respondent_line_by_line_read: z.array(z.string().trim()),
+  hypothesis_space: z.object({
+    conservative: z.array(z.string().trim()),
+    balanced: z.array(z.string().trim()),
+    aggressive: z.array(z.string().trim()),
+  }),
+  candidate_pool: z.object({
+    reminders: z.array(z.string().trim()),
+    missing_checks: z.array(z.string().trim()),
+    practical_options: z.array(z.string().trim()),
+    reassurance_lines: z.array(z.string().trim()),
+  }),
 });
 
 const RESERVED_STAGE_B_KEYS = new Set([
@@ -62,6 +75,10 @@ export interface AiThinkingDraft2StyleSignals {
   has_observation_anchor: boolean;
   has_open_question_or_hypothesis: boolean;
   too_template_like: boolean;
+  near_duplicate_with_draft1?: boolean;
+  has_reassurance_in_professional_read?: boolean;
+  has_reassurance_in_attention_points?: boolean;
+  has_reassurance_in_practical_guidance?: boolean;
   rewrite_needed: boolean;
 }
 
@@ -82,7 +99,102 @@ function hasOpenQuestionOrHypothesis(text: string): boolean {
     .test(text);
 }
 
-export function evaluateAiThinkingDraft2Style(raw: unknown): AiThinkingDraft2StyleSignals {
+function normalizeSimilarityText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[*_`>#~[\](){},.!?:;"'，。！？：；、“”‘’（）【】]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toShingles(text: string, size = 3): Set<string> {
+  const normalized = normalizeSimilarityText(text).replace(/\s+/g, "");
+  const out = new Set<string>();
+  if (!normalized) return out;
+  if (normalized.length <= size) {
+    out.add(normalized);
+    return out;
+  }
+  for (let i = 0; i <= normalized.length - size; i += 1) {
+    out.add(normalized.slice(i, i + size));
+  }
+  return out;
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const item of a) {
+    if (b.has(item)) inter += 1;
+  }
+  const union = a.size + b.size - inter;
+  if (union <= 0) return 0;
+  return inter / union;
+}
+
+function isNearDuplicateWithDraft1(params: {
+  draft2: {
+    professional_read: string;
+    what_i_would_pay_attention_to: string;
+    practical_guidance: string;
+  };
+  draft1: AiThinkingStageBDraft1Result;
+}): boolean {
+  const pairs: Array<[string, string]> = [
+    [params.draft2.professional_read, params.draft1.draft1_professional_read],
+    [params.draft2.what_i_would_pay_attention_to, params.draft1.draft1_attention_points],
+    [params.draft2.practical_guidance, params.draft1.draft1_practical_guidance],
+  ];
+  const sims = pairs.map(([left, right]) => jaccard(toShingles(left), toShingles(right)));
+  const max = Math.max(...sims);
+  const avg = sims.reduce((sum, n) => sum + n, 0) / sims.length;
+  return max >= 0.83 || avg >= 0.74;
+}
+
+function hasDedicatedReassureParagraph(text: string): boolean {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return paragraphs.some((p) => /^(安心提示|Reassurance)\s*[:：]/i.test(p));
+}
+
+function evaluatePetReassurance(raw: {
+  professional_read: string;
+  what_i_would_pay_attention_to: string;
+  practical_guidance: string;
+}): {
+  professional: boolean;
+  attention: boolean;
+  guidance: boolean;
+} {
+  const positiveSignal = /(积极信号|好信号|相对积极|先不用过度担心|从目前信息看|目前看.*(稳定|可控)|good sign|encouraging sign|reassuring sign|currently stable)/i;
+  const cautionSignal = /(需要留意|仍要留意|但.*需要|如果出现|一旦.*(请|需)|worsen|if .*?(appear|happens).*?(vet|clinic)|seek.*(vet|clinic)|prompt clinic escalation)/i;
+  const observationSignal = /(观察|记录|留意|变化|频率|尿团|食欲|精神|watch|monitor|track|trend|appetite|energy|today|this week)/i;
+  const ladderSignal = /(即刻|现在|今天|24小时|一旦|如果出现|立即就医|马上就医|now|next 24h|same day|escalation|urgent)/i;
+  const supportiveSignal = /(你已经做对|你做对了|先别太慌|先不用过度担心|可以一步一步|you're already doing|you did the right thing|try not to panic|one step at a time)/i;
+
+  const professional = hasDedicatedReassureParagraph(raw.professional_read)
+    || (positiveSignal.test(raw.professional_read) && cautionSignal.test(raw.professional_read));
+  const attention = hasDedicatedReassureParagraph(raw.what_i_would_pay_attention_to)
+    || (observationSignal.test(raw.what_i_would_pay_attention_to) && supportiveSignal.test(raw.what_i_would_pay_attention_to));
+  const guidance = hasDedicatedReassureParagraph(raw.practical_guidance)
+    || (ladderSignal.test(raw.practical_guidance) && supportiveSignal.test(raw.practical_guidance));
+
+  return {
+    professional,
+    attention,
+    guidance,
+  };
+}
+
+export function evaluateAiThinkingDraft2Style(
+  raw: unknown,
+  options?: {
+    domain?: AskmoreV2InsightDomain;
+    draft1?: AiThinkingStageBDraft1Result;
+  },
+): AiThinkingDraft2StyleSignals {
   const parsed = stageBNormalizeSchema.safeParse(raw);
   const base = parsed.success ? parsed.data : stageBNormalizeSchema.parse({});
   const joined = `${base.professional_read}\n${base.what_i_would_pay_attention_to}\n${base.practical_guidance}`;
@@ -100,12 +212,41 @@ export function evaluateAiThinkingDraft2Style(raw: unknown): AiThinkingDraft2Sty
     + (hasOpen ? 0 : 1)
     + (tooTemplateLike ? 1 : 0);
 
+  const nearDuplicateWithDraft1 = options?.draft1
+    ? isNearDuplicateWithDraft1({
+      draft2: {
+        professional_read: base.professional_read,
+        what_i_would_pay_attention_to: base.what_i_would_pay_attention_to,
+        practical_guidance: base.practical_guidance,
+      },
+      draft1: options.draft1,
+    })
+    : false;
+
+  const petSignals = options?.domain === "pet_clinic"
+    ? evaluatePetReassurance({
+      professional_read: base.professional_read,
+      what_i_would_pay_attention_to: base.what_i_would_pay_attention_to,
+      practical_guidance: base.practical_guidance,
+    })
+    : {
+      professional: true,
+      attention: true,
+      guidance: true,
+    };
+  const petReassuranceMissing = options?.domain === "pet_clinic"
+    && (!petSignals.professional || !petSignals.attention || !petSignals.guidance);
+
   return {
     is_conclusion_first: isConclusionFirst,
     has_observation_anchor: hasAnchor,
     has_open_question_or_hypothesis: hasOpen,
     too_template_like: tooTemplateLike,
-    rewrite_needed: isConclusionFirst || rewriteScore >= 2,
+    near_duplicate_with_draft1: nearDuplicateWithDraft1 || undefined,
+    has_reassurance_in_professional_read: options?.domain === "pet_clinic" ? petSignals.professional : undefined,
+    has_reassurance_in_attention_points: options?.domain === "pet_clinic" ? petSignals.attention : undefined,
+    has_reassurance_in_practical_guidance: options?.domain === "pet_clinic" ? petSignals.guidance : undefined,
+    rewrite_needed: isConclusionFirst || rewriteScore >= 2 || nearDuplicateWithDraft1 || petReassuranceMissing,
   };
 }
 
@@ -141,6 +282,10 @@ export function buildAiThinkingQualityFlags(
     has_observation_anchor: style.has_observation_anchor,
     has_open_question_or_hypothesis: style.has_open_question_or_hypothesis,
     too_template_like: style.too_template_like,
+    near_duplicate_with_draft1: style.near_duplicate_with_draft1,
+    has_reassurance_in_professional_read: style.has_reassurance_in_professional_read,
+    has_reassurance_in_attention_points: style.has_reassurance_in_attention_points,
+    has_reassurance_in_practical_guidance: style.has_reassurance_in_practical_guidance,
   };
 }
 

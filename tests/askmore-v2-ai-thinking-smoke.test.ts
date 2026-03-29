@@ -171,6 +171,19 @@ describe("askmore v2 ai thinking smoke", () => {
         observation_anchors: ["夜里会偷偷哭", "社交媒体触发焦虑"],
         open_questions_or_hypotheses: ["有没有可能你白天在硬撑"],
         tone_risks_to_avoid_in_draft2: ["避免结论先行"],
+        provider_intent_by_question: ["问题在判断触发和影响范围。"],
+        respondent_line_by_line_read: ["夜里会哭：可能是白天压抑后的释放。"],
+        hypothesis_space: {
+          conservative: ["阶段性情绪波动"],
+          balanced: ["比较-自责循环正在形成"],
+          aggressive: ["持续拖延可能扩大功能影响"],
+        },
+        candidate_pool: {
+          reminders: ["先看触发链条而非直接下结论"],
+          missing_checks: ["白天维持方式"],
+          practical_options: ["一周触发记录"],
+          reassurance_lines: ["目前仍处于可干预窗口期"],
+        },
       })
       .mockResolvedValueOnce({
         professional_read: "我看到你反复提到同辈比较，这让我在想，痛点可能不只是焦虑，而是你开始拿外在进度衡量自己。有没有可能你白天一直在硬撑？",
@@ -202,6 +215,19 @@ describe("askmore v2 ai thinking smoke", () => {
         observation_anchors: ["夜里会偷偷哭", "社交媒体触发焦虑"],
         open_questions_or_hypotheses: ["有没有可能你白天在硬撑"],
         tone_risks_to_avoid_in_draft2: ["避免结论先行"],
+        provider_intent_by_question: ["问题在判断触发和影响范围。"],
+        respondent_line_by_line_read: ["夜里会哭：可能是白天压抑后的释放。"],
+        hypothesis_space: {
+          conservative: ["阶段性情绪波动"],
+          balanced: ["比较-自责循环正在形成"],
+          aggressive: ["持续拖延可能扩大功能影响"],
+        },
+        candidate_pool: {
+          reminders: ["先看触发链条而非直接下结论"],
+          missing_checks: ["白天维持方式"],
+          practical_options: ["一周触发记录"],
+          reassurance_lines: ["目前仍处于可干预窗口期"],
+        },
       })
       .mockResolvedValueOnce({
         professional_read: "我看到你反复提到同辈比较，这让我在想，痛点可能不只是焦虑，而是你开始拿外在进度衡量自己。有没有可能你白天一直在硬撑？",

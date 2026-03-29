@@ -1422,9 +1422,12 @@ function legacyIntelligenceFromTurnUnderstanding(params: {
 
 export async function startAskmoreV2Interview(params: {
   language: AskmoreV2Language;
+  workspace_id?: string;
+  created_by_user_id?: string | null;
 }) {
   const repo = getAskmoreV2Repository();
-  const activeFlow = await repo.getActiveFlowVersion();
+  const workspaceId = params.workspace_id;
+  const activeFlow = await repo.getActiveFlowVersion(workspaceId);
   if (!activeFlow) {
     throw new Error("No published askmore_v2 flow found. Please publish a flow from Builder first.");
   }
@@ -1472,6 +1475,8 @@ export async function startAskmoreV2Interview(params: {
   const session: AskmoreV2Session = {
     id: sessionId,
     flow_version_id: activeFlow.id,
+    workspace_id: workspaceId,
+    created_by_user_id: params.created_by_user_id ?? null,
     status: "in_progress",
     turn_count: 0,
     state_version: 1,
@@ -1498,9 +1503,11 @@ export async function generateAskmoreV2Summary(params: {
   sessionId: string;
   language: AskmoreV2Language;
   mode: "progressive" | "final";
+  workspace_id?: string;
 }) {
   const repo = getAskmoreV2Repository();
-  const session = await repo.getSession(params.sessionId);
+  const workspaceId = params.workspace_id;
+  const session = await repo.getSession(params.sessionId, workspaceId);
   if (!session) throw new Error("Session not found");
 
   const messages = await repo.listMessages(params.sessionId, 120);
@@ -1527,6 +1534,7 @@ export async function generateAskmoreV2Summary(params: {
     await tryAutoGenerateInsightOnCompletion({
       sessionId: params.sessionId,
       language: params.language,
+      workspaceId,
     });
   }
 

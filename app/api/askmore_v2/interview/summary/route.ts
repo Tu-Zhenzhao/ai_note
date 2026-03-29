@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
 import { generateAskmoreV2Summary } from "@/server/askmore_v2/services/interview-runtime";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const bodySchema = z.object({
   session_id: z.string().uuid(),
@@ -11,12 +12,15 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const payload = bodySchema.parse(await request.json());
     await ensureAskmoreV2PostgresReady();
     const result = await generateAskmoreV2Summary({
       sessionId: payload.session_id,
       language: payload.language,
       mode: payload.mode,
+      workspace_id: auth.workspace.id,
     });
     return NextResponse.json(result);
   } catch (error) {

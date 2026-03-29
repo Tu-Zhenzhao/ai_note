@@ -11,6 +11,7 @@ const IN_MEMORY_SESSION_QUEUE = new Map<string, Promise<unknown>>();
 
 interface EnqueueTurnInput {
   sessionId: string;
+  workspaceId?: string;
   userMessage: string;
   language: AskmoreV2Language;
   clientTurnId: string;

@@ -10,6 +10,7 @@ import {
 } from "@/server/askmore_v2/types";
 import { AskmoreV2Repository } from "@/server/askmore_v2/repo/contracts";
 import { dbQuery, getActiveDbExecutor } from "@/server/repo/db";
+import { DEFAULT_WORKSPACE_ID } from "@/server/auth/constants";
 
 function toJsonbParam(value: unknown): string {
   return JSON.stringify(value ?? null);
@@ -23,16 +24,23 @@ function ensureDb() {
   return db;
 }
 
+function resolveWorkspaceId(workspaceId?: string): string {
+  const normalized = workspaceId?.trim();
+  return normalized && normalized.length > 0 ? normalized : DEFAULT_WORKSPACE_ID;
+}
+
 export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
   async createFlowVersion(flow: AskmoreV2FlowVersion): Promise<void> {
     ensureDb();
+    const workspaceId = resolveWorkspaceId(flow.workspace_id);
     await dbQuery(
       `insert into askmore_v2_flow_versions
-       (id, version, status, flow_jsonb, published_at, created_at, updated_at)
-       values ($1,$2,$3,$4::jsonb,$5,$6,$7)`,
+       (id, version, workspace_id, status, flow_jsonb, published_at, created_at, updated_at)
+       values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
       [
         flow.id,
         flow.version,
+        workspaceId,
         flow.status,
         toJsonbParam(flow.flow_jsonb),
         flow.published_at,
@@ -40,63 +48,74 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
         flow.updated_at,
       ],
     );
+    flow.workspace_id = workspaceId;
   }
 
-  async listFlowVersions(limit = 50): Promise<AskmoreV2FlowVersion[]> {
+  async listFlowVersions(limit = 50, workspaceId?: string): Promise<AskmoreV2FlowVersion[]> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `select *
        from askmore_v2_flow_versions
+       where workspace_id = $2
        order by version desc
        limit $1`,
-      [limit],
+      [limit, scopeWorkspaceId],
     );
     return result.rows as AskmoreV2FlowVersion[];
   }
 
-  async getFlowVersion(flowVersionId: string): Promise<AskmoreV2FlowVersion | null> {
+  async getFlowVersion(flowVersionId: string, workspaceId?: string): Promise<AskmoreV2FlowVersion | null> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `select *
        from askmore_v2_flow_versions
-       where id = $1`,
-      [flowVersionId],
+       where id = $1 and workspace_id = $2`,
+      [flowVersionId, scopeWorkspaceId],
     );
     return (result.rows[0] as AskmoreV2FlowVersion | undefined) ?? null;
   }
 
-  async getActiveFlowVersion(): Promise<AskmoreV2FlowVersion | null> {
+  async getActiveFlowVersion(workspaceId?: string): Promise<AskmoreV2FlowVersion | null> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `select *
        from askmore_v2_flow_versions
-       where status = 'published'
+       where workspace_id = $1 and status = 'published'
        order by version desc
        limit 1`,
+      [scopeWorkspaceId],
     );
     return (result.rows[0] as AskmoreV2FlowVersion | undefined) ?? null;
   }
 
-  async clearPublishedFlowVersions(): Promise<void> {
+  async clearPublishedFlowVersions(workspaceId?: string): Promise<void> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     await dbQuery(
       `update askmore_v2_flow_versions
        set status = 'draft',
            published_at = null,
            updated_at = now()
-       where status = 'published'`,
+       where workspace_id = $1 and status = 'published'`,
+      [scopeWorkspaceId],
     );
   }
 
   async createSession(session: AskmoreV2Session): Promise<void> {
     ensureDb();
+    const workspaceId = resolveWorkspaceId(session.workspace_id);
     await dbQuery(
       `insert into askmore_v2_sessions
-       (id, flow_version_id, status, turn_count, state_version, state_jsonb, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)`,
+       (id, flow_version_id, workspace_id, created_by_user_id, status, turn_count, state_version, state_jsonb, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`,
       [
         session.id,
         session.flow_version_id,
+        workspaceId,
+        session.created_by_user_id ?? null,
         session.status,
         session.turn_count,
         session.state_version > 0 ? session.state_version : 1,
@@ -105,15 +124,17 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
         session.updated_at,
       ],
     );
+    session.workspace_id = workspaceId;
   }
 
-  async getSession(sessionId: string): Promise<AskmoreV2Session | null> {
+  async getSession(sessionId: string, workspaceId?: string): Promise<AskmoreV2Session | null> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `select *
        from askmore_v2_sessions
-       where id = $1`,
-      [sessionId],
+       where id = $1 and workspace_id = $2`,
+      [sessionId, scopeWorkspaceId],
     );
     const row = result.rows[0] as AskmoreV2Session | undefined;
     if (!row) return null;
@@ -123,14 +144,16 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
     return row;
   }
 
-  async listSessions(limit = 100): Promise<AskmoreV2Session[]> {
+  async listSessions(limit = 100, workspaceId?: string): Promise<AskmoreV2Session[]> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `select *
        from askmore_v2_sessions
+       where workspace_id = $2
        order by updated_at desc
        limit $1`,
-      [limit],
+      [limit, scopeWorkspaceId],
     );
     return (result.rows as AskmoreV2Session[]).map((row) => ({
       ...row,
@@ -138,12 +161,13 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
     }));
   }
 
-  async deleteSession(sessionId: string): Promise<boolean> {
+  async deleteSession(sessionId: string, workspaceId?: string): Promise<boolean> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
       `delete from askmore_v2_sessions
-       where id = $1`,
-      [sessionId],
+       where id = $1 and workspace_id = $2`,
+      [sessionId, scopeWorkspaceId],
     );
     return (result.rowCount ?? 0) > 0;
   }
@@ -151,22 +175,28 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
   async updateSession(session: AskmoreV2Session): Promise<void> {
     ensureDb();
     const currentVersion = typeof session.state_version === "number" ? session.state_version : 1;
+    const workspaceId = resolveWorkspaceId(session.workspace_id);
     const result = await dbQuery(
       `update askmore_v2_sessions
        set flow_version_id = $2,
-           status = $3,
-           turn_count = $4,
+           workspace_id = $3,
+           created_by_user_id = $4,
+           status = $5,
+           turn_count = $6,
            state_version = state_version + 1,
-           state_jsonb = $5::jsonb,
-           updated_at = $6
-       where id = $1 and state_version = $7`,
+           state_jsonb = $7::jsonb,
+           updated_at = $8
+       where id = $1 and workspace_id = $9 and state_version = $10`,
       [
         session.id,
         session.flow_version_id,
+        workspaceId,
+        session.created_by_user_id ?? null,
         session.status,
         session.turn_count,
         toJsonbParam(session.state_jsonb),
         session.updated_at,
+        workspaceId,
         currentVersion,
       ],
     );
@@ -361,28 +391,36 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
     );
   }
 
-  async listInsightRuns(sessionId: string, limit = 20): Promise<AskmoreV2InsightRunRecord[]> {
+  async listInsightRuns(
+    sessionId: string,
+    limit = 20,
+    workspaceId?: string,
+  ): Promise<AskmoreV2InsightRunRecord[]> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
-      `select *
-       from askmore_v2_insight_runs
-       where session_id = $1
-       order by created_at desc
-       limit $2`,
-      [sessionId, limit],
+      `select r.*
+       from askmore_v2_insight_runs r
+       join askmore_v2_sessions s on s.id = r.session_id
+       where r.session_id = $1 and s.workspace_id = $2
+       order by r.created_at desc
+       limit $3`,
+      [sessionId, scopeWorkspaceId, limit],
     );
     return result.rows as AskmoreV2InsightRunRecord[];
   }
 
-  async getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null> {
+  async getLatestInsightRun(sessionId: string, workspaceId?: string): Promise<AskmoreV2InsightRunRecord | null> {
     ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
     const result = await dbQuery(
-      `select *
-       from askmore_v2_insight_runs
-       where session_id = $1
-       order by created_at desc
+      `select r.*
+       from askmore_v2_insight_runs r
+       join askmore_v2_sessions s on s.id = r.session_id
+       where r.session_id = $1 and s.workspace_id = $2
+       order by r.created_at desc
        limit 1`,
-      [sessionId],
+      [sessionId, scopeWorkspaceId],
     );
     return (result.rows[0] as AskmoreV2InsightRunRecord | undefined) ?? null;
   }

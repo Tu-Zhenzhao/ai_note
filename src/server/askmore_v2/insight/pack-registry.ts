@@ -68,6 +68,17 @@ const PACKS: Record<string, InsightPackDefinition> = {
       "Avoid judgmental phrasing.",
     ],
   },
+  "style.pet_owner_reassuring.v1": {
+    id: "style.pet_owner_reassuring.v1",
+    type: "style",
+    version: 1,
+    description: "Warm, grounded veterinary communication with active emotional stabilization.",
+    instructions: [
+      "Keep medical clarity while actively stabilizing owner emotions.",
+      "In each visible section, include one dedicated reassurance paragraph tied to evidence.",
+      "Use supportive language, but always pair reassurance with clear watch/escalation thresholds.",
+    ],
+  },
   "safety.standard.v1": {
     id: "safety.standard.v1",
     type: "safety",

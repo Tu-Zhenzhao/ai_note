@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ensureAskmoreV2PostgresReady } from "@/server/askmore_v2/db-preflight";
 import { SessionRuntimeManager } from "@/server/askmore_v2/runtime/session-runtime-manager";
 import type { AskmoreV2TurnStreamEvent } from "@/server/askmore_v2/types";
+import { requireApiAuth } from "@/server/auth/api-auth";
 
 const bodySchema = z.object({
   session_id: z.string().uuid(),
@@ -20,13 +21,15 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const { auth, unauthorizedResponse } = await requireApiAuth(request);
+    if (unauthorizedResponse || !auth) return unauthorizedResponse!;
     const payload = bodySchema.parse(await request.json());
     const streamMode = request.nextUrl.searchParams.get("stream") === "1";
     await ensureAskmoreV2PostgresReady();
     if (streamMode) {
-      return streamTurnResponse(payload);
+      return streamTurnResponse(payload, auth.workspace.id);
     }
-    const result = await runTurn(payload);
+    const result = await runTurn(payload, auth.workspace.id);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -37,10 +40,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function runTurn(payload: z.infer<typeof bodySchema>) {
+async function runTurn(payload: z.infer<typeof bodySchema>, workspaceId: string) {
   const runtimeManager = new SessionRuntimeManager();
   return runtimeManager.enqueueTurn({
     sessionId: payload.session_id,
+    workspaceId,
     userMessage: payload.user_message,
     language: payload.language,
     clientTurnId: payload.client_turn_id,
@@ -48,7 +52,7 @@ async function runTurn(payload: z.infer<typeof bodySchema>) {
   });
 }
 
-function streamTurnResponse(payload: z.infer<typeof bodySchema>) {
+function streamTurnResponse(payload: z.infer<typeof bodySchema>, workspaceId: string) {
   const encoder = new TextEncoder();
   const write = (
     controller: ReadableStreamDefaultController<Uint8Array>,
@@ -64,6 +68,7 @@ function streamTurnResponse(payload: z.infer<typeof bodySchema>) {
         try {
           const result = await runtimeManager.enqueueTurn({
             sessionId: payload.session_id,
+            workspaceId,
             userMessage: payload.user_message,
             language: payload.language,
             clientTurnId: payload.client_turn_id,

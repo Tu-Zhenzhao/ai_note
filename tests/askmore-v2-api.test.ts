@@ -106,7 +106,9 @@ describe("askmore v2 API contracts", () => {
     expect(publishData.version).toBe(1);
 
     const { GET: activeGet } = await import("../app/api/askmore_v2/builder/active-flow/route");
-    const activeResponse = await activeGet();
+    const activeResponse = await activeGet(
+      new NextRequest("http://localhost/api/askmore_v2/builder/active-flow"),
+    );
     const activeData = await activeResponse.json();
 
     expect(activeResponse.status).toBe(200);

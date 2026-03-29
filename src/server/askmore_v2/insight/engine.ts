@@ -218,6 +218,19 @@ export async function generateAiThinking(params: {
       observation_anchors: stageA.observed_facts,
       open_questions_or_hypotheses: stageA.claims,
       tone_risks_to_avoid_in_draft2: [],
+      provider_intent_by_question: [],
+      respondent_line_by_line_read: [],
+      hypothesis_space: {
+        conservative: [],
+        balanced: [],
+        aggressive: [],
+      },
+      candidate_pool: {
+        reminders: [],
+        missing_checks: [],
+        practical_options: [],
+        reassurance_lines: [],
+      },
     };
     params.onStageEvent?.({
       stage: "stage_b_draft1",
@@ -246,7 +259,10 @@ export async function generateAiThinking(params: {
   });
 
   let draft2PromptComposition = stageBDraft2Prompt.promptComposition;
-  let draft2Style = evaluateAiThinkingDraft2Style(stageBDraft2Raw);
+  let draft2Style = evaluateAiThinkingDraft2Style(stageBDraft2Raw, {
+    domain: params.context.domain,
+    draft1: stageBDraft1,
+  });
   let rewriteReasons: string[] = [];
 
   if (draft2Style.rewrite_needed) {
@@ -255,6 +271,10 @@ export async function generateAiThinking(params: {
       draft2Style.has_observation_anchor ? "" : "missing_observation_anchor",
       draft2Style.has_open_question_or_hypothesis ? "" : "missing_open_question_or_hypothesis",
       draft2Style.too_template_like ? "template_like_tone" : "",
+      draft2Style.near_duplicate_with_draft1 ? "near_duplicate_with_draft1" : "",
+      draft2Style.has_reassurance_in_professional_read === false ? "missing_pet_reassurance_professional_read" : "",
+      draft2Style.has_reassurance_in_attention_points === false ? "missing_pet_reassurance_attention_points" : "",
+      draft2Style.has_reassurance_in_practical_guidance === false ? "missing_pet_reassurance_practical_guidance" : "",
     ].filter(Boolean);
 
     const rewritePrompt = composeAiThinkingStageBDraft2Prompt({
@@ -275,7 +295,10 @@ export async function generateAiThinking(params: {
       onStageEvent: params.onStageEvent,
     });
     draft2PromptComposition = rewritePrompt.promptComposition;
-    draft2Style = evaluateAiThinkingDraft2Style(stageBDraft2Raw);
+    draft2Style = evaluateAiThinkingDraft2Style(stageBDraft2Raw, {
+      domain: params.context.domain,
+      draft1: stageBDraft1,
+    });
   }
 
   const result = normalizeAiThinkingResult({

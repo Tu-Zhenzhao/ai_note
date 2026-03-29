@@ -58,7 +58,7 @@ export function resolveInsightPacks(params: {
   const defaultStylePack: Record<AskmoreV2InsightDomain, string> = {
     business: "style.direct_advisor.v1",
     mental_health: "style.warm_clinical.v1",
-    pet_clinic: "style.warm_clinical.v1",
+    pet_clinic: "style.pet_owner_reassuring.v1",
   };
 
   const defaultSafetyPack: Record<AskmoreV2InsightDomain, string> = {

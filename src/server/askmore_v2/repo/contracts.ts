@@ -10,15 +10,15 @@ import {
 
 export interface AskmoreV2Repository {
   createFlowVersion(flow: AskmoreV2FlowVersion): Promise<void>;
-  listFlowVersions(limit?: number): Promise<AskmoreV2FlowVersion[]>;
-  getFlowVersion(flowVersionId: string): Promise<AskmoreV2FlowVersion | null>;
-  getActiveFlowVersion(): Promise<AskmoreV2FlowVersion | null>;
-  clearPublishedFlowVersions(): Promise<void>;
+  listFlowVersions(limit?: number, workspaceId?: string): Promise<AskmoreV2FlowVersion[]>;
+  getFlowVersion(flowVersionId: string, workspaceId?: string): Promise<AskmoreV2FlowVersion | null>;
+  getActiveFlowVersion(workspaceId?: string): Promise<AskmoreV2FlowVersion | null>;
+  clearPublishedFlowVersions(workspaceId?: string): Promise<void>;
 
   createSession(session: AskmoreV2Session): Promise<void>;
-  listSessions(limit?: number): Promise<AskmoreV2Session[]>;
-  getSession(sessionId: string): Promise<AskmoreV2Session | null>;
-  deleteSession(sessionId: string): Promise<boolean>;
+  listSessions(limit?: number, workspaceId?: string): Promise<AskmoreV2Session[]>;
+  getSession(sessionId: string, workspaceId?: string): Promise<AskmoreV2Session | null>;
+  deleteSession(sessionId: string, workspaceId?: string): Promise<boolean>;
   updateSession(session: AskmoreV2Session): Promise<void>;
 
   addMessage(message: AskmoreV2Message): Promise<void>;
@@ -45,6 +45,6 @@ export interface AskmoreV2Repository {
   createTurnCommit(record: AskmoreV2TurnCommitRecord): Promise<void>;
 
   createInsightRun(record: AskmoreV2InsightRunRecord): Promise<void>;
-  listInsightRuns(sessionId: string, limit?: number): Promise<AskmoreV2InsightRunRecord[]>;
-  getLatestInsightRun(sessionId: string): Promise<AskmoreV2InsightRunRecord | null>;
+  listInsightRuns(sessionId: string, limit?: number, workspaceId?: string): Promise<AskmoreV2InsightRunRecord[]>;
+  getLatestInsightRun(sessionId: string, workspaceId?: string): Promise<AskmoreV2InsightRunRecord | null>;
 }

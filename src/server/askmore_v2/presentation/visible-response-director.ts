@@ -25,6 +25,7 @@ export async function buildVisibleEvents(params: {
   language: "zh" | "en";
   scenario?: string | null;
   targetOutputType?: string | null;
+  transitionReason?: string | null;
   latestUserTurn: string;
 }): Promise<AskmoreV2VisibleEvent[]> {
   const drafts = selectPresentationDraftEvents({
@@ -32,6 +33,9 @@ export async function buildVisibleEvents(params: {
     routedIntent: params.routedIntent,
     state: params.state,
     language: params.language,
+    transitionReason: params.transitionReason,
+    scenario: params.scenario,
+    targetOutputType: params.targetOutputType,
   });
   const toneProfile = resolveToneProfile({
     scenario: params.scenario ?? null,
