@@ -94,6 +94,9 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
   const activeLookInputRef = useRef<HTMLInputElement | null>(null);
   const activeLookKindRef = useRef<LookKind>("text");
   const frameRef = useRef<number | null>(null);
+  const armTimerRef = useRef<number | null>(null);
+
+  const [armPose, setArmPose] = useState<"hidden" | "covering" | "covered" | "uncovering">("hidden");
 
   const isRegister = mode === "register";
   const armMaskId = `${svgId}-arm-mask`;
@@ -331,6 +334,33 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
     };
   }, [isPasswordFocused]);
 
+  useEffect(() => {
+    const clearArmTimer = () => {
+      if (armTimerRef.current !== null) {
+        window.clearTimeout(armTimerRef.current);
+        armTimerRef.current = null;
+      }
+    };
+
+    clearArmTimer();
+
+    if (isPasswordFocused) {
+      setArmPose("covering");
+      armTimerRef.current = window.setTimeout(() => {
+        setArmPose("covered");
+        armTimerRef.current = null;
+      }, 420);
+    } else {
+      setArmPose((current) => (current === "hidden" ? "hidden" : "uncovering"));
+      armTimerRef.current = window.setTimeout(() => {
+        setArmPose("hidden");
+        armTimerRef.current = null;
+      }, 460);
+    }
+
+    return clearArmTimer;
+  }, [isPasswordFocused]);
+
   const faceTransition = "transform 0.95s cubic-bezier(0.19, 1, 0.22, 1)";
   const featureTransition = "transform 0.95s cubic-bezier(0.19, 1, 0.22, 1)";
   const eyeTransition = "transform 0.95s cubic-bezier(0.19, 1, 0.22, 1)";
@@ -343,7 +373,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           <div className="v2-dog-inner">
             <svg className="v2-dog-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <circle id={armMaskPathId} cx="100" cy="100" r="100" />
+                <rect id={armMaskPathId} x="-120" y="-20" width="440" height="320" />
                 <clipPath id={armMaskId}>
                   <use href={`#${armMaskPathId}`} overflow="visible" />
                 </clipPath>
@@ -352,8 +382,6 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
                   <use href={`#${mouthMaskPathId}`} overflow="visible" />
                 </clipPath>
               </defs>
-
-              <circle cx="100" cy="100" r="100" fill="#F0EDE5" />
 
               <g className="body">
                 <path
@@ -626,30 +654,34 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
               />
 
               <g className="arms" clipPath={`url(#${armMaskId})`}>
-                <g className={`v2-armL ${isPasswordFocused ? "is-up" : "is-down"}`}>
-                  <polygon fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points="121.3,98.4 111,59.7 149.8,49.3 169.8,85.4" />
-                  <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M134.4,53.5l19.3-5.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-10.3,2.8" />
-                  <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M150.9,59.4l26-7c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-21.3,5.7" />
-                  <g className={`v2-twoFingers ${showPassword ? "is-spread" : "is-closed"}`}>
-                    <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M158.3,67.8l23.1-6.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-23.1,6.2" />
-                    <path fill="#0D7B64" d="M180.1,65l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L180.1,65z" />
-                    <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M160.8,77.5l19.4-5.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-18.3,4.9" />
-                    <path fill="#0D7B64" d="M178.8,75.7l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L178.8,75.7z" />
+                <g className={`v2-armL is-${armPose}`}>
+                  <g transform="translate(-10 -108)">
+                    <polygon fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points="121.3,98.4 111,59.7 149.8,49.3 169.8,85.4" />
+                    <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M134.4,53.5l19.3-5.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-10.3,2.8" />
+                    <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M150.9,59.4l26-7c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-21.3,5.7" />
+                    <g className={`v2-twoFingers ${showPassword ? "is-spread" : "is-closed"}`}>
+                      <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M158.3,67.8l23.1-6.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-23.1,6.2" />
+                      <path fill="#0D7B64" d="M180.1,65l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L180.1,65z" />
+                      <path fill="#EAF5F2" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M160.8,77.5l19.4-5.2c2.7-0.7,5.4,0.9,6.1,3.5v0c0.7,2.7-0.9,5.4-3.5,6.1l-18.3,4.9" />
+                      <path fill="#0D7B64" d="M178.8,75.7l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L178.8,75.7z" />
+                    </g>
+                    <path fill="#0D7B64" d="M175.5,55.9l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L175.5,55.9z" />
+                    <path fill="#0D7B64" d="M152.1,50.4l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L152.1,50.4z" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M123.5,97.8c-41.4,14.9-84.1,30.7-108.2,35.5L1.2,81c33.5-9.9,71.9-16.5,111.9-21.8" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M108.5,60.4c7.7-5.3,14.3-8.4,22.8-13.2c-2.4,5.3-4.7,10.3-6.7,15.1c4.3,0.3,8.4,0.7,12.3,1.3c-4.2,5-8.1,9.6-11.5,13.9c3.1,1.1,6,2.4,8.7,3.8c-1.4,2.9-2.7,5.8-3.9,8.5c2.5,3.5,4.6,7.2,6.3,11c-4.9-0.8-9-0.7-16.2-2.7" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M94.5,103.8c-0.6,4-3.8,8.9-9.4,14.7c-2.6-1.8-5-3.7-7.2-5.7c-2.5,4.1-6.6,8.8-12.2,14c-1.9-2.2-3.4-4.5-4.5-6.9c-4.4,3.3-9.5,6.9-15.4,10.8c-0.2-3.4,0.1-7.1,1.1-10.9" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M97.5,63.9c-1.7-2.4-5.9-4.1-12.4-5.2c-0.9,2.2-1.8,4.3-2.5,6.5c-3.8-1.8-9.4-3.1-17-3.8c0.5,2.3,1.2,4.5,1.9,6.8c-5-0.6-11.2-0.9-18.4-1c2,2.9,0.9,3.5,3.9,6.2" />
                   </g>
-                  <path fill="#0D7B64" d="M175.5,55.9l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L175.5,55.9z" />
-                  <path fill="#0D7B64" d="M152.1,50.4l2.2-0.6c1.1-0.3,2.2,0.3,2.4,1.4v0c0.3,1.1-0.3,2.2-1.4,2.4l-2.2,0.6L152.1,50.4z" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M123.5,97.8c-41.4,14.9-84.1,30.7-108.2,35.5L1.2,81c33.5-9.9,71.9-16.5,111.9-21.8" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M108.5,60.4c7.7-5.3,14.3-8.4,22.8-13.2c-2.4,5.3-4.7,10.3-6.7,15.1c4.3,0.3,8.4,0.7,12.3,1.3c-4.2,5-8.1,9.6-11.5,13.9c3.1,1.1,6,2.4,8.7,3.8c-1.4,2.9-2.7,5.8-3.9,8.5c2.5,3.5,4.6,7.2,6.3,11c-4.9-0.8-9-0.7-16.2-2.7" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M94.5,103.8c-0.6,4-3.8,8.9-9.4,14.7c-2.6-1.8-5-3.7-7.2-5.7c-2.5,4.1-6.6,8.8-12.2,14c-1.9-2.2-3.4-4.5-4.5-6.9c-4.4,3.3-9.5,6.9-15.4,10.8c-0.2-3.4,0.1-7.1,1.1-10.9" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M97.5,63.9c-1.7-2.4-5.9-4.1-12.4-5.2c-0.9,2.2-1.8,4.3-2.5,6.5c-3.8-1.8-9.4-3.1-17-3.8c0.5,2.3,1.2,4.5,1.9,6.8c-5-0.6-11.2-0.9-18.4-1c2,2.9,0.9,3.5,3.9,6.2" />
                 </g>
 
-                <g className={`v2-armR ${isPasswordFocused ? "is-up" : "is-down"}`}>
-                  <path fill="#EAF5F2" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M265.4 97.3l10.4-38.6-38.9-10.5-20 36.1z" />
-                  <path fill="#EAF5F2" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M252.4 52.4L233 47.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l10.3 2.8M226 76.4l-19.4-5.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l18.3 4.9M228.4 66.7l-23.1-6.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l23.1 6.2M235.8 58.3l-26-7c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l21.3 5.7" />
-                  <path fill="#0D7B64" d="M207.9 74.7l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM206.7 64l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM211.2 54.8l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM234.6 49.4l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8z" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M263.3 96.7c41.4 14.9 84.1 30.7 108.2 35.5l14-52.3C352 70 313.6 63.5 273.6 58.1" />
-                  <path fill="#FFFFFF" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M278.2 59.3l-18.6-10 2.5 11.9-10.7 6.5 9.9 8.7-13.9 6.4 9.1 5.9-13.2 9.2 23.1-.9M284.5 100.1c-.4 4 1.8 8.9 6.7 14.8 3.5-1.8 6.7-3.6 9.7-5.5 1.8 4.2 5.1 8.9 10.1 14.1 2.7-2.1 5.1-4.4 7.1-6.8 4.1 3.4 9 7 14.7 11 1.2-3.4 1.8-7 1.7-10.9M314 66.7s5.4-5.7 12.6-7.4c1.7 2.9 3.3 5.7 4.9 8.6 3.8-2.5 9.8-4.4 18.2-5.7.1 3.1.1 6.1 0 9.2 5.5-1 12.5-1.6 20.8-1.9-1.4 3.9-2.5 8.4-2.5 8.4" />
+                <g className={`v2-armR is-${armPose}`}>
+                  <g transform="translate(-374 -108)">
+                    <path fill="#EAF5F2" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M265.4 97.3l10.4-38.6-38.9-10.5-20 36.1z" />
+                    <path fill="#EAF5F2" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M252.4 52.4L233 47.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l10.3 2.8M226 76.4l-19.4-5.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l18.3 4.9M228.4 66.7l-23.1-6.2c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l23.1 6.2M235.8 58.3l-26-7c-2.7-.7-5.4.9-6.1 3.5-.7 2.7.9 5.4 3.5 6.1l21.3 5.7" />
+                    <path fill="#0D7B64" d="M207.9 74.7l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM206.7 64l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM211.2 54.8l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8zM234.6 49.4l-2.2-.6c-1.1-.3-2.2.3-2.4 1.4-.3 1.1.3 2.2 1.4 2.4l2.2.6 1-3.8z" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M263.3 96.7c41.4 14.9 84.1 30.7 108.2 35.5l14-52.3C352 70 313.6 63.5 273.6 58.1" />
+                    <path fill="#FFFFFF" stroke="#2D2B29" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M278.2 59.3l-18.6-10 2.5 11.9-10.7 6.5 9.9 8.7-13.9 6.4 9.1 5.9-13.2 9.2 23.1-.9M284.5 100.1c-.4 4 1.8 8.9 6.7 14.8 3.5-1.8 6.7-3.6 9.7-5.5 1.8 4.2 5.1 8.9 10.1 14.1 2.7-2.1 5.1-4.4 7.1-6.8 4.1 3.4 9 7 14.7 11 1.2-3.4 1.8-7 1.7-10.9M314 66.7s5.4-5.7 12.6-7.4c1.7 2.9 3.3 5.7 4.9 8.6 3.8-2.5 9.8-4.4 18.2-5.7.1 3.1.1 6.1 0 9.2 5.5-1 12.5-1.6 20.8-1.9-1.4 3.9-2.5 8.4-2.5 8.4" />
+                  </g>
                 </g>
               </g>
             </svg>
@@ -782,19 +814,19 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
 
         .v2-auth-container {
           width: 100%;
-          max-width: 400px;
+          max-width: 420px;
           position: relative;
+          padding-top: 160px;
         }
 
         .v2-dog-viewer {
-          position: relative;
-          width: 200px;
-          height: 200px;
-          margin: 0 auto -10px;
-          border-radius: 50%;
-          border: solid 2.5px #2d2b29;
-          background: #f0ede5;
-          z-index: 5;
+          position: absolute;
+          top: -10px;
+          left: 50%;
+          width: 262px;
+          height: 232px;
+          transform: translateX(-50%);
+          z-index: 1;
           pointer-events: none;
         }
 
@@ -802,8 +834,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           position: relative;
           width: 100%;
           height: 100%;
-          overflow: hidden;
-          border-radius: 50%;
+          overflow: visible;
         }
 
         .v2-dog-svg {
@@ -812,31 +843,55 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           width: 100%;
           height: 100%;
           overflow: visible;
+          filter: drop-shadow(0 12px 18px rgba(45, 43, 41, 0.08));
         }
 
         .v2-armL,
         .v2-armR {
-          transition: transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+          transition: transform 0.56s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.2s ease, opacity 0.12s ease;
+          transform-origin: 0 0;
         }
 
-        .v2-armL.is-down {
-          transform: translate(-93px, 220px) rotate(105deg);
-          transform-origin: top left;
+        .v2-armL.is-hidden,
+        .v2-armL.is-uncovering {
+          transform: translate(-40px, 176px) rotate(72deg);
+          filter: none;
         }
 
-        .v2-armL.is-up {
-          transform: translate(-93px, 10px) rotate(0deg);
-          transform-origin: top left;
+        .v2-armL.is-hidden {
+          opacity: 0;
         }
 
-        .v2-armR.is-down {
-          transform: translate(-93px, 220px) rotate(-105deg);
-          transform-origin: 293px 0;
+        .v2-armL.is-covering,
+        .v2-armL.is-covered {
+          transform: translate(-40px, 176px) rotate(-28deg);
+          filter: drop-shadow(0 3px 4px rgba(45, 43, 41, 0.12));
+          opacity: 1;
         }
 
-        .v2-armR.is-up {
-          transform: translate(-93px, 10px) rotate(0deg);
-          transform-origin: 293px 0;
+        .v2-armL.is-uncovering {
+          opacity: 1;
+        }
+
+        .v2-armR.is-hidden,
+        .v2-armR.is-uncovering {
+          transform: translate(240px, 176px) rotate(-72deg);
+          filter: none;
+        }
+
+        .v2-armR.is-hidden {
+          opacity: 0;
+        }
+
+        .v2-armR.is-covering,
+        .v2-armR.is-covered {
+          transform: translate(240px, 176px) rotate(28deg);
+          filter: drop-shadow(0 3px 4px rgba(45, 43, 41, 0.12));
+          opacity: 1;
+        }
+
+        .v2-armR.is-uncovering {
+          opacity: 1;
         }
 
         .v2-twoFingers {
@@ -861,6 +916,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           box-shadow: 0 20px 60px rgba(45, 43, 41, 0.08);
           position: relative;
           z-index: 10;
+          overflow: hidden;
         }
 
         .v2-auth-header {
@@ -1000,6 +1056,15 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
         }
 
         @media (max-width: 480px) {
+          .v2-auth-container {
+            padding-top: 146px;
+          }
+
+          .v2-dog-viewer {
+            width: 236px;
+            height: 212px;
+          }
+
           .v2-auth-card {
             padding: 40px 24px 28px;
             border-radius: 18px;
