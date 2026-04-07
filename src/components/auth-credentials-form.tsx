@@ -809,6 +809,12 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
               </Link>
             )}
           </div>
+
+          <div className="v2-auth-landing-link">
+            <a href="https://askmore.ulfilter.com" target="_blank" rel="noreferrer">
+              先看看首页 / View Landing Page
+            </a>
+          </div>
         </form>
       </div>
 
@@ -1072,6 +1078,27 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
         .v2-auth-footer span {
           color: #0d7b64;
           font-weight: 700;
+        }
+
+        .v2-auth-landing-link {
+          margin-top: 12px;
+          text-align: center;
+        }
+
+        .v2-auth-landing-link a {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: #8a867d;
+          font-size: 13px;
+          font-weight: 600;
+          text-decoration: none;
+          transition: color 0.18s ease, transform 0.18s ease;
+        }
+
+        .v2-auth-landing-link a:hover {
+          color: #57534e;
+          transform: translateY(-1px);
         }
 
         .v2-measure {
