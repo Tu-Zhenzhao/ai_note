@@ -702,7 +702,37 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
 
         <form onSubmit={onSubmit} className="v2-auth-card">
           <div className="v2-auth-header">
-            <h1>{isRegister ? "开问吧" : "来啦？多问AI准备好了"}</h1>
+            <h1>
+              {isRegister ? (
+                <>
+                  来
+                  <span className="v2-brand-link-wrapper">
+                    <a href="https://askmore.ulfilter.com" target="_blank" rel="noreferrer" className="v2-brand-link">
+                      多问AI
+                    </a>
+                    <div className="v2-brand-tooltip">
+                      我是干啥的？看看首页吧
+                      <div className="v2-tooltip-tail" />
+                    </div>
+                  </span>
+                  开问吧
+                </>
+              ) : (
+                <>
+                  来啦？
+                  <span className="v2-brand-link-wrapper">
+                    <a href="https://askmore.ulfilter.com" target="_blank" rel="noreferrer" className="v2-brand-link">
+                      多问AI
+                    </a>
+                    <div className="v2-brand-tooltip">
+                      我是干啥的？看看首页吧
+                      <div className="v2-tooltip-tail" />
+                    </div>
+                  </span>
+                  准备好了
+                </>
+              )}
+            </h1>
             <p className="v2-auth-tagline">好的答案，来自被理解的过程</p>
           </div>
 
@@ -809,12 +839,6 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
               </Link>
             )}
           </div>
-
-          <div className="v2-auth-landing-link">
-            <a href="https://askmore.ulfilter.com" target="_blank" rel="noreferrer">
-              先看看首页 / View Landing Page
-            </a>
-          </div>
         </form>
       </div>
 
@@ -834,7 +858,7 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           width: 100%;
           max-width: 420px;
           position: relative;
-          padding-top: 160px;
+          padding-top: 170px;
         }
 
         .v2-dog-viewer {
@@ -946,11 +970,11 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           background: #ffffff;
           border: 1px solid #e5e2da;
           border-radius: 20px;
-          padding: 48px 32px 32px;
+          padding: 64px 32px 32px;
           box-shadow: 0 20px 60px rgba(45, 43, 41, 0.08);
           position: relative;
           z-index: 10;
-          overflow: hidden;
+          overflow: visible;
         }
 
         .v2-auth-header {
@@ -963,6 +987,74 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
           font-weight: 800;
           color: #2d2b29;
           margin: 0 0 4px;
+          line-height: 1.4;
+        }
+
+        .v2-brand-link-wrapper {
+          position: relative;
+          display: inline-block;
+          margin: 0 4px;
+        }
+
+        .v2-brand-link {
+          color: #0d7b64 !important;
+          text-decoration: underline dashed 2px;
+          text-underline-offset: 4px;
+          transition: transform 0.2s ease;
+          display: inline-block;
+        }
+
+        .v2-brand-link:hover {
+          transform: scale(1.05);
+        }
+
+        .v2-brand-tooltip {
+          position: absolute;
+          bottom: 100%;
+          left: 50%;
+          transform: translateX(-50%) rotate(-4deg);
+          margin-bottom: 12px;
+          background: #fffbeb;
+          border: 2px solid #2d2b29;
+          border-radius: 12px;
+          padding: 6px 10px;
+          font-size: 13px;
+          font-weight: 700;
+          color: #2d2b29;
+          white-space: nowrap;
+          box-shadow: 4px 4px 0 rgba(45, 43, 41, 0.1);
+          pointer-events: none;
+          animation: v2-float 3s ease-in-out infinite;
+          z-index: 20;
+          line-height: 1.2;
+        }
+
+        .v2-tooltip-tail {
+          position: absolute;
+          top: 100%;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 0;
+          height: 0;
+          border-left: 8px solid transparent;
+          border-right: 8px solid transparent;
+          border-top: 10px solid #2d2b29;
+          margin-top: -1px;
+        }
+
+        .v2-tooltip-tail::after {
+          content: '';
+          position: absolute;
+          top: -11px;
+          left: -6px;
+          border-left: 6px solid transparent;
+          border-right: 6px solid transparent;
+          border-top: 8px solid #fffbeb;
+        }
+
+        @keyframes v2-float {
+          0%, 100% { transform: translateX(-50%) rotate(-4deg) translateY(0); }
+          50% { transform: translateX(-50%) rotate(-4deg) translateY(-5px); }
         }
 
         .v2-auth-tagline {
@@ -1078,27 +1170,6 @@ export function AuthCredentialsForm({ mode }: { mode: Mode }) {
         .v2-auth-footer span {
           color: #0d7b64;
           font-weight: 700;
-        }
-
-        .v2-auth-landing-link {
-          margin-top: 12px;
-          text-align: center;
-        }
-
-        .v2-auth-landing-link a {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          color: #8a867d;
-          font-size: 13px;
-          font-weight: 600;
-          text-decoration: none;
-          transition: color 0.18s ease, transform 0.18s ease;
-        }
-
-        .v2-auth-landing-link a:hover {
-          color: #57534e;
-          transform: translateY(-1px);
         }
 
         .v2-measure {
