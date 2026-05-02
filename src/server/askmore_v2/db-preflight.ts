@@ -4,6 +4,7 @@ const REQUIRED_TABLES = [
   "public.askmore_v2_flow_versions",
   "public.askmore_v2_sessions",
   "public.askmore_v2_messages",
+  "public.askmore_v2_session_feedback",
   "public.askmore_v2_turn_events",
   "public.askmore_v2_turn_commits",
   "public.askmore_v2_insight_runs",

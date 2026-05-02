@@ -175,6 +175,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/interviewer
 MODEL_PRIMARY=gemini-3.1-flash-lite-preview
 MODEL_FALLBACK=deepseek-chat
 INTERVIEW_TRACE_ADMIN_KEY=
+INTERNAL_REVIEW_PASSWORD=
 AGENT_TRACE_VERBOSE=false
 NEXT_PUBLIC_SHOW_CONTEXT_USAGE=
 ```
@@ -183,6 +184,7 @@ Notes:
 
 - `DATABASE_URL` is required for runtime and migrations.
 - `INTERVIEW_TRACE_ADMIN_KEY` enables admin audit access.
+- `INTERNAL_REVIEW_PASSWORD` enables the private `/internal/feedback` review console.
 - `AGENT_TRACE_VERBOSE=true` turns on more detailed runtime tracing.
 - `NEXT_PUBLIC_SHOW_CONTEXT_USAGE` controls whether the context usage strip is visible in the UI.
 

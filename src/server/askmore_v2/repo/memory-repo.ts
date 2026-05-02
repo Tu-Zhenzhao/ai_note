@@ -4,6 +4,7 @@ import {
   AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
+  AskmoreV2SessionFeedback,
   AskmoreV2TurnCommitRecord,
   AskmoreV2TurnEvent,
 } from "@/server/askmore_v2/types";
@@ -14,6 +15,7 @@ interface AskmoreV2Store {
   flows: Map<string, AskmoreV2FlowVersion>;
   sessions: Map<string, AskmoreV2Session>;
   messages: Map<string, AskmoreV2Message[]>;
+  feedback: Map<string, AskmoreV2SessionFeedback>;
   events: Map<string, Array<{ turn_id: string; channel: AskmoreV2EventChannel; event: AskmoreV2TurnEvent }>>;
   commits: Map<string, AskmoreV2TurnCommitRecord>;
   insightRuns: Map<string, AskmoreV2InsightRunRecord[]>;
@@ -27,6 +29,7 @@ function getStore(): AskmoreV2Store {
       flows: new Map(),
       sessions: new Map(),
       messages: new Map(),
+      feedback: new Map(),
       events: new Map(),
       commits: new Map(),
       insightRuns: new Map(),
@@ -43,6 +46,7 @@ export function resetAskmoreV2MemoryStore(): void {
     flows: new Map(),
     sessions: new Map(),
     messages: new Map(),
+    feedback: new Map(),
     events: new Map(),
     commits: new Map(),
     insightRuns: new Map(),
@@ -138,6 +142,7 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
     if (this.resolveWorkspaceId(session.workspace_id) !== scopeWorkspaceId) return false;
     const existed = this.store.sessions.delete(sessionId);
     this.store.messages.delete(sessionId);
+    this.store.feedback.delete(sessionId);
     this.store.events.delete(sessionId);
     this.store.insightRuns.delete(sessionId);
     for (const key of this.store.commits.keys()) {
@@ -174,6 +179,25 @@ export class MemoryAskmoreV2Repository implements AskmoreV2Repository {
     const list = this.store.messages.get(sessionId) ?? [];
     if (!limit) return [...list];
     return list.slice(-limit);
+  }
+
+  async upsertSessionFeedback(feedback: AskmoreV2SessionFeedback): Promise<void> {
+    const session = this.store.sessions.get(feedback.session_id);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    this.store.feedback.set(feedback.session_id, {
+      ...feedback,
+      workspace_id: this.resolveWorkspaceId(feedback.workspace_id ?? session.workspace_id),
+    });
+  }
+
+  async getSessionFeedback(sessionId: string, workspaceId?: string): Promise<AskmoreV2SessionFeedback | null> {
+    const scopeWorkspaceId = this.resolveWorkspaceId(workspaceId);
+    const session = this.store.sessions.get(sessionId);
+    if (!session) return null;
+    if (this.resolveWorkspaceId(session.workspace_id) !== scopeWorkspaceId) return null;
+    return this.store.feedback.get(sessionId) ?? null;
   }
 
   async addTurnEvents(params: {

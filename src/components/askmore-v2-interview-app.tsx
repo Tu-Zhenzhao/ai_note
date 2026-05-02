@@ -208,6 +208,25 @@ type SessionDetailResponse = {
   };
   messages: SessionMessage[];
   flow_questions: FlowQuestion[] | null;
+  feedback: SessionFeedback | null;
+  error?: string;
+};
+
+type SessionFeedback = {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  user_id: string;
+  helpful: boolean | null;
+  satisfaction_score: number | null;
+  goal_text: string | null;
+  issue_text: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type FeedbackResponse = {
+  feedback?: SessionFeedback;
   error?: string;
 };
 
@@ -726,6 +745,20 @@ function buildEventMetaText(event: DebugEvent): string {
   return parts.join(" · ");
 }
 
+function buildFeedbackForm(feedback: SessionFeedback | null): {
+  helpful: boolean | null;
+  satisfaction_score: number | null;
+  goal_text: string;
+  issue_text: string;
+} {
+  return {
+    helpful: feedback?.helpful ?? null,
+    satisfaction_score: feedback?.satisfaction_score ?? null,
+    goal_text: feedback?.goal_text ?? "",
+    issue_text: feedback?.issue_text ?? "",
+  };
+}
+
 function aiThinkingStageLabel(
   stage: AiThinkingJobProgress["stage"] | undefined,
   lang: AskmoreV2Language,
@@ -829,6 +862,9 @@ export function AskmoreV2InterviewApp() {
   const [summaryDialog, setSummaryDialog] = useState<SummaryDialogState>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightDialog, setInsightDialog] = useState<InsightDialogState>(null);
+  const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState(() => buildFeedbackForm(null));
   const [insightHistory, setInsightHistory] = useState<InsightRunRecord[]>([]);
   const [insightJobMeta, setInsightJobMeta] = useState<InsightJobStatusResponse["job_meta"] | null>(null);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
@@ -1150,6 +1186,8 @@ export function AskmoreV2InterviewApp() {
     setSummaryLoading(false);
     setInsightDialog(null);
     setInsightLoading(false);
+    setSessionFeedback(null);
+    setFeedbackForm(buildFeedbackForm(null));
     setInsightHistory([]);
     setRuntimeFallbackHint(null);
     setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
@@ -1200,6 +1238,8 @@ export function AskmoreV2InterviewApp() {
     setInterviewStatus(payload.session.status);
     setTurnCount(payload.session.turn_count);
     setChatRows(mapSessionMessagesToChatRows(payload.messages ?? []));
+    setSessionFeedback(payload.feedback ?? null);
+    setFeedbackForm(buildFeedbackForm(payload.feedback ?? null));
     if (payload.flow_questions?.length) {
       setActiveQuestions(payload.flow_questions);
     } else {
@@ -1266,6 +1306,8 @@ export function AskmoreV2InterviewApp() {
       setActiveQuestions(activeFlow?.flow_jsonb.final_flow_questions ?? []);
       setChatRows([{ id: `assistant-opening-${payload.session_id}`, role: "assistant", content: payload.opening_turn }]);
       setInputText("");
+      setSessionFeedback(null);
+      setFeedbackForm(buildFeedbackForm(null));
       setInsightHistory([]);
       setInsightDialog(null);
       persistSessionId(payload.session_id);
@@ -1778,6 +1820,38 @@ export function AskmoreV2InterviewApp() {
       return;
     }
     await sendTurn(text);
+  }
+
+  async function submitFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!sessionId || feedbackSubmitting || isSessionTransitioning) return;
+
+    setFeedbackSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/feedback/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          helpful: feedbackForm.helpful,
+          satisfaction_score: feedbackForm.satisfaction_score,
+          goal_text: feedbackForm.goal_text,
+          issue_text: feedbackForm.issue_text,
+        }),
+      });
+      const payload = (await response.json()) as FeedbackResponse;
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to save feedback");
+      }
+      const savedFeedback = payload.feedback ?? null;
+      setSessionFeedback(savedFeedback);
+      setFeedbackForm(buildFeedbackForm(savedFeedback));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save feedback");
+    } finally {
+      setFeedbackSubmitting(false);
+    }
   }
 
   async function handleNewSession() {
@@ -2351,6 +2425,118 @@ export function AskmoreV2InterviewApp() {
                 )}
               </section>
             </aside>
+
+            {sessionId && (
+              <section className="v2-feedback-card">
+                <div className="v2-feedback-head">
+                  <div>
+                    <h3>{language === "zh" ? "Beta 反馈" : "Beta Feedback"}</h3>
+                    <p>
+                      {interviewStatus === "completed"
+                        ? (language === "zh"
+                          ? "访谈完成后，告诉我们这次结果是否有帮助。"
+                          : "Now that the session is complete, tell us whether it helped.")
+                        : (language === "zh"
+                          ? "如果这轮访谈有卡住的地方，直接留在这里。"
+                          : "If anything feels off during the session, leave it here.")}
+                    </p>
+                  </div>
+                  {sessionFeedback?.updated_at && (
+                    <span className="v2-feedback-saved">
+                      {language === "zh" ? "已保存" : "Saved"} · {new Date(sessionFeedback.updated_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                <form className="v2-feedback-form" onSubmit={submitFeedback}>
+                  <div className="v2-feedback-group">
+                    <span className="v2-feedback-label">{language === "zh" ? "这次回答有帮助吗？" : "Was this helpful?"}</span>
+                    <div className="v2-feedback-choice-row">
+                      <button
+                        type="button"
+                        className={`v2-feedback-choice ${feedbackForm.helpful === true ? "active" : ""}`}
+                        onClick={() => setFeedbackForm((prev) => ({
+                          ...prev,
+                          helpful: prev.helpful === true ? null : true,
+                        }))}
+                      >
+                        {language === "zh" ? "有帮助" : "Yes"}
+                      </button>
+                      <button
+                        type="button"
+                        className={`v2-feedback-choice ${feedbackForm.helpful === false ? "active negative" : ""}`}
+                        onClick={() => setFeedbackForm((prev) => ({
+                          ...prev,
+                          helpful: prev.helpful === false ? null : false,
+                        }))}
+                      >
+                        {language === "zh" ? "没帮助" : "No"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="v2-feedback-group">
+                    <span className="v2-feedback-label">{language === "zh" ? "满意度 1-5" : "Satisfaction 1-5"}</span>
+                    <div className="v2-feedback-score-row">
+                      {[1, 2, 3, 4, 5].map((score) => (
+                        <button
+                          key={`feedback-score-${score}`}
+                          type="button"
+                          className={`v2-feedback-score ${feedbackForm.satisfaction_score === score ? "active" : ""}`}
+                          onClick={() => setFeedbackForm((prev) => ({
+                            ...prev,
+                            satisfaction_score: prev.satisfaction_score === score ? null : score,
+                          }))}
+                        >
+                          {score}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="v2-feedback-group">
+                    <label className="v2-feedback-label" htmlFor="feedback-goal">
+                      {language === "zh" ? "你原本想解决什么？" : "What were you trying to solve?"}
+                    </label>
+                    <textarea
+                      id="feedback-goal"
+                      rows={2}
+                      value={feedbackForm.goal_text}
+                      onChange={(e) => setFeedbackForm((prev) => ({ ...prev, goal_text: e.target.value }))}
+                      placeholder={language === "zh" ? "例如：想整理客户访谈里的关键问题" : "Example: organize the key issues from a customer interview"}
+                    />
+                  </div>
+
+                  <div className="v2-feedback-group">
+                    <label className="v2-feedback-label" htmlFor="feedback-issue">
+                      {language === "zh" ? "哪里不对劲，或者还差什么？" : "What felt wrong, missing, or confusing?"}
+                    </label>
+                    <textarea
+                      id="feedback-issue"
+                      rows={3}
+                      value={feedbackForm.issue_text}
+                      onChange={(e) => setFeedbackForm((prev) => ({ ...prev, issue_text: e.target.value }))}
+                      placeholder={language === "zh" ? "例如：答案太泛，或者问题重复了" : "Example: too generic, repeated questions, missed the point"}
+                    />
+                  </div>
+
+                  <div className="v2-feedback-actions">
+                    <button className="v2-btn" type="submit" disabled={feedbackSubmitting || isSessionTransitioning}>
+                      {feedbackSubmitting
+                        ? (language === "zh" ? "保存中..." : "Saving...")
+                        : sessionFeedback
+                          ? (language === "zh" ? "更新反馈" : "Update Feedback")
+                          : (language === "zh" ? "提交反馈" : "Save Feedback")}
+                    </button>
+                    <span className="v2-feedback-note">
+                      {language === "zh"
+                        ? "这会连同会话记录一起给内部评审查看。"
+                        : "This will be reviewed together with the session transcript."}
+                    </span>
+                  </div>
+                </form>
+              </section>
+            )}
 
             <section className="v2-thinking-panel-card">
               <h3>{aiThinkingTitle}</h3>

@@ -4,6 +4,7 @@ import {
   AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
+  AskmoreV2SessionFeedback,
   AskmoreV2TurnCommitRecord,
   AskmoreV2TurnEvent,
   AskmoreV2VisibleEvent,
@@ -249,6 +250,49 @@ export class PostgresAskmoreV2Repository implements AskmoreV2Repository {
       [sessionId, limit],
     );
     return result.rows as AskmoreV2Message[];
+  }
+
+  async upsertSessionFeedback(feedback: AskmoreV2SessionFeedback): Promise<void> {
+    ensureDb();
+    const workspaceId = resolveWorkspaceId(feedback.workspace_id);
+    await dbQuery(
+      `insert into askmore_v2_session_feedback
+       (id, session_id, workspace_id, user_id, helpful, satisfaction_score, goal_text, issue_text, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       on conflict (session_id)
+       do update set
+         helpful = excluded.helpful,
+         satisfaction_score = excluded.satisfaction_score,
+         goal_text = excluded.goal_text,
+         issue_text = excluded.issue_text,
+         updated_at = excluded.updated_at`,
+      [
+        feedback.id,
+        feedback.session_id,
+        workspaceId,
+        feedback.user_id,
+        feedback.helpful,
+        feedback.satisfaction_score,
+        feedback.goal_text,
+        feedback.issue_text,
+        feedback.created_at,
+        feedback.updated_at,
+      ],
+    );
+  }
+
+  async getSessionFeedback(sessionId: string, workspaceId?: string): Promise<AskmoreV2SessionFeedback | null> {
+    ensureDb();
+    const scopeWorkspaceId = resolveWorkspaceId(workspaceId);
+    const result = await dbQuery(
+      `select f.*
+       from askmore_v2_session_feedback f
+       join askmore_v2_sessions s on s.id = f.session_id
+       where f.session_id = $1 and s.workspace_id = $2
+       limit 1`,
+      [sessionId, scopeWorkspaceId],
+    );
+    return (result.rows[0] as AskmoreV2SessionFeedback | undefined) ?? null;
   }
 
   async addTurnEvents(params: {

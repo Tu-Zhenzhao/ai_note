@@ -379,6 +379,11 @@ const RUNTIME_PHASE_LABELS: Record<RuntimeProgressPhase, string> = {
   intent_classification: "Agent is processing your answer ...",
   structured_extraction: "Agent is filling your ideas to your checklist ...",
   response_generation: "Response generating ...",
+  assemble_context: "Preparing the latest session context ...",
+  route_intent: "Routing the current user intent ...",
+  execute_task: "Running the selected task ...",
+  build_response: "Composing the response ...",
+  persist_and_finalize: "Saving the turn result ...",
   done: "Done!",
 };
 

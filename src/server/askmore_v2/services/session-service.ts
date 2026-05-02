@@ -4,6 +4,7 @@ import {
   AskmoreV2FlowQuestion,
   AskmoreV2Message,
   AskmoreV2Session,
+  AskmoreV2SessionFeedback,
   AskmoreV2SessionListItem,
 } from "@/server/askmore_v2/types";
 
@@ -43,6 +44,7 @@ export async function getAskmoreV2SessionDetail(sessionId: string): Promise<{
   session: AskmoreV2Session | null;
   messages: AskmoreV2Message[];
   flow_questions: AskmoreV2FlowQuestion[] | null;
+  feedback: AskmoreV2SessionFeedback | null;
 }> {
   const repo = getAskmoreV2Repository();
   const session = await repo.getSession(sessionId);
@@ -51,12 +53,14 @@ export async function getAskmoreV2SessionDetail(sessionId: string): Promise<{
       session: null,
       messages: [],
       flow_questions: null,
+      feedback: null,
     };
   }
 
-  const [messages, flowVersion] = await Promise.all([
+  const [messages, flowVersion, feedback] = await Promise.all([
     repo.listMessages(sessionId),
     repo.getFlowVersion(session.flow_version_id),
+    repo.getSessionFeedback(sessionId, session.workspace_id),
   ]);
   const flow_questions = flowVersion
     ? toCanonicalFlowDefinition(flowVersion.flow_jsonb).final_flow_questions
@@ -66,6 +70,7 @@ export async function getAskmoreV2SessionDetail(sessionId: string): Promise<{
     session,
     messages,
     flow_questions,
+    feedback,
   };
 }
 
@@ -76,6 +81,7 @@ export async function getAskmoreV2SessionDetailInWorkspace(params: {
   session: AskmoreV2Session | null;
   messages: AskmoreV2Message[];
   flow_questions: AskmoreV2FlowQuestion[] | null;
+  feedback: AskmoreV2SessionFeedback | null;
 }> {
   const repo = getAskmoreV2Repository();
   const session = await repo.getSession(params.sessionId, params.workspaceId);
@@ -84,12 +90,14 @@ export async function getAskmoreV2SessionDetailInWorkspace(params: {
       session: null,
       messages: [],
       flow_questions: null,
+      feedback: null,
     };
   }
 
-  const [messages, flowVersion] = await Promise.all([
+  const [messages, flowVersion, feedback] = await Promise.all([
     repo.listMessages(params.sessionId),
     repo.getFlowVersion(session.flow_version_id, params.workspaceId),
+    repo.getSessionFeedback(params.sessionId, params.workspaceId),
   ]);
   const flow_questions = flowVersion
     ? toCanonicalFlowDefinition(flowVersion.flow_jsonb).final_flow_questions
@@ -99,6 +107,7 @@ export async function getAskmoreV2SessionDetailInWorkspace(params: {
     session,
     messages,
     flow_questions,
+    feedback,
   };
 }
 

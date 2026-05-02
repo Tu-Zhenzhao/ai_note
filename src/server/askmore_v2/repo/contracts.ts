@@ -4,6 +4,7 @@ import {
   AskmoreV2InsightRunRecord,
   AskmoreV2Message,
   AskmoreV2Session,
+  AskmoreV2SessionFeedback,
   AskmoreV2TurnCommitRecord,
   AskmoreV2TurnEvent,
 } from "@/server/askmore_v2/types";
@@ -23,6 +24,9 @@ export interface AskmoreV2Repository {
 
   addMessage(message: AskmoreV2Message): Promise<void>;
   listMessages(sessionId: string, limit?: number): Promise<AskmoreV2Message[]>;
+
+  upsertSessionFeedback(feedback: AskmoreV2SessionFeedback): Promise<void>;
+  getSessionFeedback(sessionId: string, workspaceId?: string): Promise<AskmoreV2SessionFeedback | null>;
 
   addTurnEvents(params: {
     session_id: string;

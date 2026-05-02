@@ -1368,4 +1368,88 @@ describe("askmore v2 API contracts", () => {
     expect(turnData.state.runtime_meta?.last_task_module).toBe("ClarificationAgent");
   });
 
+  test("session feedback can be saved and loaded with session detail", async () => {
+    const repo = getAskmoreV2Repository();
+    const { ensureRuntimeStateDefaults } = await import("../src/server/askmore_v2/runtime/context-engine");
+    const sessionId = "77777777-7777-4777-8777-777777777777";
+
+    await repo.createSession({
+      id: sessionId,
+      flow_version_id: "flow-test-feedback",
+      workspace_id: "ws_default_beta",
+      created_by_user_id: "user_test_beta",
+      status: "in_progress",
+      turn_count: 1,
+      state_version: 1,
+      state_jsonb: ensureRuntimeStateDefaults({
+        session: {
+          current_question_id: "q1",
+          current_sub_question_index: 0,
+          summary_generated: false,
+          finalized: false,
+          pending_end_confirmation: false,
+          last_missing_points: [],
+          last_understanding_feedback: null,
+          pending_intent: null,
+          pending_commitments: [],
+        },
+        recent_user_turns: [],
+        recent_dimension_prompts: [],
+        nodes: {},
+        node_runtime: {},
+        question_progress: {},
+        structured_knowledge: {},
+        latest_summary_text: null,
+        latest_structured_report: null,
+        runtime_meta: {},
+      } as any),
+      created_at: "2026-04-20T00:00:00.000Z",
+      updated_at: "2026-04-20T00:00:00.000Z",
+    });
+    await repo.addMessage({
+      id: "msg-feedback-1",
+      session_id: sessionId,
+      role: "assistant",
+      message_text: "测试消息",
+      created_at: "2026-04-20T00:00:00.000Z",
+    });
+
+    const { POST: feedbackPost } = await import("../app/api/feedback/session/route");
+    const feedbackResponse = await feedbackPost(
+      new NextRequest("http://localhost/api/feedback/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          helpful: false,
+          satisfaction_score: 2,
+          goal_text: "想确认访谈总结是否足够清楚",
+          issue_text: "回答有点泛，缺少具体建议。",
+        }),
+      }),
+    );
+    const feedbackData = await feedbackResponse.json();
+
+    expect(feedbackResponse.status).toBe(200);
+    expect(feedbackData.feedback.helpful).toBe(false);
+    expect(feedbackData.feedback.satisfaction_score).toBe(2);
+
+    const { GET: sessionDetailGet } = await import("../app/api/askmore_v2/interview/sessions/[id]/route");
+    const detailResponse = await sessionDetailGet(
+      new NextRequest(`http://localhost/api/askmore_v2/interview/sessions/${sessionId}`),
+      {
+        params: Promise.resolve({ id: sessionId }),
+      },
+    );
+    const detailData = await detailResponse.json();
+
+    expect(detailResponse.status).toBe(200);
+    expect(detailData.feedback).toMatchObject({
+      helpful: false,
+      satisfaction_score: 2,
+      goal_text: "想确认访谈总结是否足够清楚",
+      issue_text: "回答有点泛，缺少具体建议。",
+    });
+  });
+
 });

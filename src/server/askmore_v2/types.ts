@@ -271,6 +271,19 @@ export interface AskmoreV2Session {
   updated_at: string;
 }
 
+export interface AskmoreV2SessionFeedback {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  user_id: string;
+  helpful: boolean | null;
+  satisfaction_score: number | null;
+  goal_text: string | null;
+  issue_text: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AskmoreV2SessionListItem {
   id: string;
   workspace_id?: string;
